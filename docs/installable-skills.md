@@ -43,6 +43,14 @@ Example client configuration:
 
 Keep Bambuddy credentials in the runtime environment, with least privilege. Do not put secret values in skill files, agent memory, logs, or chat.
 
+Public model-site search is enabled by default through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other model platforms. For archive-only/local-only mode:
+
+```sh
+export PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=false
+```
+
+To use a private search gateway instead, configure `PRINT_CONCIERGE_MAKERWORLD_SEARCH_URL`, `PRINT_CONCIERGE_PRINTABLES_SEARCH_URL`, or `PRINT_CONCIERGE_EXTERNAL_SEARCH_PROVIDERS`.
+
 ## Registry-Ready Paths
 
 - Canonical OpenAI/Codex package: `skills/print-concierge/`

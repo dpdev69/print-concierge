@@ -8,7 +8,10 @@ from print_concierge.search.external import (
     ConfiguredExternalSearchProvider,
     HttpJsonSearchProvider,
     MakerWorldSearchProvider,
+    PublicModelSiteSearchProvider,
+    ThreeDSearchProvider,
     configured_external_providers,
+    default_public_search_provider,
 )
 
 
@@ -135,3 +138,114 @@ def test_configured_external_providers_support_json_provider_configs(monkeypatch
     assert len(providers) == 1
     assert isinstance(providers[0], ConfiguredExternalSearchProvider)
     assert providers[0].provider_name == "thangs"
+
+
+def test_public_model_site_search_provider_parses_search_results():
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx.Response(
+            200,
+            content="""
+            <html>
+              <body>
+                <a class="result__a" href="/l/?uddg=https%3A%2F%2Fmakerworld.com%2Fen%2Fmodels%2F1282635">
+                  Universal cable holder V2
+                </a>
+                <a class="result__snippet">A printable cable holder for desks.</a>
+                <a class="result__a" href="https://makerworld.com/en/models/9999-cable-clip">
+                  Cable clip by MakerWorld user
+                </a>
+              </body>
+            </html>
+            """,
+        )
+
+    provider = PublicModelSiteSearchProvider(
+        sites=("makerworld",),
+        search_url_template="https://search.example/html/?q={query}",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    results = provider.search("cable holder", limit=2)
+
+    assert seen == [
+        "https://search.example/html/?q=site%3Amakerworld.com+%22cable+holder%22"
+    ]
+    assert [(result.provider, result.title, result.source) for result in results] == [
+        (
+            "makerworld_web",
+            "Universal cable holder V2",
+            "https://makerworld.com/en/models/1282635",
+        ),
+        (
+            "makerworld_web",
+            "Cable clip by MakerWorld user",
+            "https://makerworld.com/en/models/9999-cable-clip",
+        ),
+    ]
+    assert results[0].warnings == (
+        "missing_license",
+        "missing_profile",
+        "missing_file_hash",
+    )
+
+
+def test_threedsearch_provider_parses_model_cards():
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx.Response(
+            200,
+            content="""
+            <div class="model-card">
+              <a href="/model/universal-cable-holder-mw1282635" class="card-link" title="Universal cable holder">
+                <span class="card-source makerworld">MakerWorld</span>
+                <div class="card-title">Universal cable holder</div>
+              </a>
+            </div>
+            <div class="model-card">
+              <a href="/model/gridfinity-bin-pr123" class="card-link" title="Gridfinity bin">
+                <span class="card-source printables">Printables</span>
+                <div class="card-title">Gridfinity bin</div>
+              </a>
+            </div>
+            """,
+        )
+
+    provider = ThreeDSearchProvider(
+        search_url_template="https://3dsearch.example/?q={query}&lang=en",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    results = provider.search("cable holder", limit=2)
+
+    assert seen == ["https://3dsearch.example/?q=cable+holder&lang=en"]
+    assert [(result.provider, result.title, result.source) for result in results] == [
+        (
+            "3dsearch_makerworld",
+            "Universal cable holder",
+            "https://3dsearch.example/model/universal-cable-holder-mw1282635",
+        ),
+        (
+            "3dsearch_printables",
+            "Gridfinity bin",
+            "https://3dsearch.example/model/gridfinity-bin-pr123",
+        ),
+    ]
+    assert results[0].metadata == {"aggregator": "3dsearch", "origin_site": "MakerWorld"}
+
+
+def test_default_public_search_provider_uses_3dsearch_by_default(monkeypatch):
+    monkeypatch.delenv("PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED", raising=False)
+    monkeypatch.delenv("PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_BACKEND", raising=False)
+
+    assert isinstance(default_public_search_provider(), ThreeDSearchProvider)
+
+
+def test_default_public_search_provider_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED", "false")
+
+    assert default_public_search_provider() is None

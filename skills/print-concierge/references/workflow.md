@@ -27,7 +27,7 @@ Example MCP client shape:
 
 ## Tool Order
 
-1. Search: `search_archive_or_models(query, limit)`.
+1. Search: `search_archive_or_models(query, limit)`. This searches Bambuddy archives plus enabled public/model-search providers.
 2. Inspect printer: `list_printers()` and `get_printer_status(printer_id)`.
 3. Prepare: `prepare_print_plan(selected, printer, material, profile, user_id, session_id)`.
 4. Confirm: `request_confirmation(plan)` through the host user channel.

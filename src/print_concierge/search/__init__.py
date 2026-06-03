@@ -5,7 +5,10 @@ from print_concierge.search.external import (
     HttpJsonSearchProvider,
     MakerWorldSearchProvider,
     PrintablesSearchProvider,
+    PublicModelSiteSearchProvider,
+    ThreeDSearchProvider,
     configured_external_providers,
+    default_public_search_provider,
 )
 from print_concierge.search.local_archive import LocalArchiveSearchProvider
 
@@ -17,7 +20,10 @@ __all__ = [
     "MakerWorldSearchProvider",
     "ModelSearchResult",
     "PrintablesSearchProvider",
+    "PublicModelSiteSearchProvider",
     "SearchProvider",
+    "ThreeDSearchProvider",
     "configured_external_providers",
+    "default_public_search_provider",
     "normalize_result",
 ]

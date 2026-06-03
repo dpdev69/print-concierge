@@ -228,6 +228,7 @@ def test_mcp_registered_tool_wrappers_hide_injected_runtime_objects(monkeypatch)
 def test_default_search_uses_runtime_archive_and_external_providers(monkeypatch):
     monkeypatch.setattr(mcp_server, "_default_bambuddy_client", lambda: FakeArchiveClient())
     monkeypatch.setattr(mcp_server, "_configured_external_search_providers", lambda: [FakeExternalProvider()])
+    monkeypatch.setattr(mcp_server, "_default_public_search_provider", lambda: None)
 
     results = mcp_server.search_archive_or_models("clip")
 

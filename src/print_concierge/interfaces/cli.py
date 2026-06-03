@@ -10,7 +10,10 @@ from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan, prepare_print_plan
 from print_concierge.search.base import ModelSearchResult
 from print_concierge.search.composite import CompositeSearchProvider
-from print_concierge.search.external import configured_external_providers
+from print_concierge.search.external import (
+    configured_external_providers,
+    default_public_search_provider,
+)
 from print_concierge.search.local_archive import LocalArchiveSearchProvider
 
 
@@ -127,6 +130,9 @@ def _default_search_provider(archive_provider: Any) -> CompositeSearchProvider:
     if hasattr(archive_provider, "search"):
         providers.append(archive_provider)
     providers.extend(configured_external_providers())
+    public_provider = default_public_search_provider()
+    if public_provider is not None:
+        providers.append(public_provider)
     return CompositeSearchProvider(providers)
 
 

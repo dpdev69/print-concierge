@@ -102,7 +102,13 @@ uv run print-concierge-mcp
 
 These commands are read-only except `prepare`, which only builds a confirmation-required plan. Queueing a print still requires the confirmation-aware gateway.
 
-External model search can be added by pointing the configurable adapters at a JSON search backend:
+By default, `search` combines Bambuddy archives with public model-site search through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other 3D model platforms. Disable public web search for archive-only mode:
+
+```sh
+export PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=false
+```
+
+External JSON search backends can also be added when you want your own indexed/ranked search service:
 
 ```sh
 export PRINT_CONCIERGE_MAKERWORLD_SEARCH_URL='https://search.example/makerworld?q={query}'

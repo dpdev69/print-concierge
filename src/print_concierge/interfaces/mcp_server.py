@@ -7,7 +7,10 @@ from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan
 from print_concierge.search.base import ModelSearchResult
 from print_concierge.search.composite import CompositeSearchProvider
-from print_concierge.search.external import configured_external_providers
+from print_concierge.search.external import (
+    configured_external_providers,
+    default_public_search_provider,
+)
 from print_concierge.search.local_archive import LocalArchiveSearchProvider
 
 
@@ -201,9 +204,16 @@ def _configured_external_search_providers() -> list[Any]:
     return list(configured_external_providers())
 
 
+def _default_public_search_provider() -> Any:
+    return default_public_search_provider()
+
+
 def _default_search_provider() -> Any:
     providers = [_default_archive_provider(_default_bambuddy_client())]
     providers.extend(_configured_external_search_providers())
+    public_provider = _default_public_search_provider()
+    if public_provider is not None:
+        providers.append(public_provider)
     return CompositeSearchProvider(providers)
 
 
