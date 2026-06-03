@@ -1,34 +1,57 @@
 # Print Concierge for Bambuddy
 
-A secure, open-source, human-in-the-loop 3D printing assistant for Bambu Lab printers and Bambuddy.
+Print Concierge is a safety-first workflow layer for agent-assisted 3D printing with Bambuddy and Bambu Lab printers.
 
-**Core idea:** ask for the object you need, review printable model options in chat, approve the exact print job, and let Bambuddy handle the printer.
+It gives Claude, Codex, Hermes, OpenClaw, and other MCP-capable clients a narrow set of tools to search for models, import and verify printable files, prepare print plans, request human approval, queue confirmed jobs, and report status. It does not expose raw printer control to the agent.
 
-**Non-negotiable rule:** no AI-selected or AI-prepared print starts without explicit user confirmation enforced by backend code.
+## Overview
 
----
+Print Concierge sits between an agent client and Bambuddy:
 
-## What You Get
+```text
+Agent client -> Print Concierge MCP/CLI -> Bambuddy -> Printer
+```
 
-- Chat-friendly search across your Bambuddy archive plus public model indexes.
-- Public candidate import/verification for supported MakerWorld, Printables, and Thingiverse flows.
-- A curated MCP server for Claude, Codex, Hermes, OpenClaw, and other MCP clients.
-- Backend-enforced confirmation before anything reaches the print queue.
-- Manual-start Bambuddy queueing by default.
-- Local-first runtime state with no hosted service required.
+The agent can help with discovery and planning, but Print Concierge enforces the production boundary:
 
-Print Concierge is designed to sit in front of Bambuddy. It is not a replacement for Bambuddy, Bambu Studio, or printer safety judgment.
+- only trusted Bambuddy archive/library files can be prepared for queueing;
+- public model results must be imported and verified first;
+- every print plan requires explicit human confirmation;
+- confirmation tokens are short-lived, single-use, and bound to the exact job;
+- queueing defaults to Bambuddy manual-start behavior.
 
-## Quick Start
+This keeps the assistant useful without giving it direct, unchecked control over a physical machine.
 
-Requirements:
+## Features
 
-- Python 3.11+
+- Bambuddy archive search
+- Public model discovery through 3DSEARCH
+- MakerWorld import through Bambuddy
+- Printables and Thingiverse direct-file import
+- Bambuddy source-file slicing with explicit slicer presets
+- File hash and sliced-file verification before planning
+- Curated MCP server for agent clients
+- CLI for setup, smoke tests, and local use
+- Backend confirmation gateway before queueing
+- Local SQLite runtime state
+- Installable skill packages for Claude, Codex, Hermes, and OpenClaw
+
+## Requirements
+
+- Python 3.11 or newer
 - `uv`
 - A running Bambuddy server reachable from this machine
-- A Bambuddy API key with the least privileges needed for archive reads, library upload/slicing, printer status, and confirmed queueing
+- A Bambuddy API key
 
-Install:
+The Bambuddy API key should use the least privileges needed for:
+
+- archive/library reads
+- public import/library upload
+- source-file slicing, if you want STL/source imports
+- printer status
+- confirmed queueing
+
+## Installation
 
 ```sh
 git clone https://github.com/dpdev69/print-concierge.git
@@ -37,7 +60,7 @@ uv sync --extra dev --extra mcp
 cp .env.example .env
 ```
 
-Edit `.env` with your Bambuddy endpoint and API key:
+Edit `.env`:
 
 ```sh
 BAMBUDDY_BASE_URL=http://YOUR-BAMBUDDY-HOST:8000
@@ -47,23 +70,54 @@ PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true
 PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=true
 ```
 
-Keep `.env` local. It is ignored by git. Do not put Bambuddy credentials in skill files, agent memory, screenshots, logs, or chat history.
+Keep `.env` local. The file is ignored by git. Do not put Bambuddy credentials in skill files, agent memory, screenshots, logs, or chat history.
 
-Run a CLI smoke test:
+## CLI Smoke Test
+
+Load your local environment:
 
 ```sh
 set -a
 source .env
 set +a
+```
 
+Check connectivity:
+
+```sh
 uv run print-concierge printers
 uv run print-concierge archives
+uv run print-concierge status 1
+```
+
+Search for models:
+
+```sh
 uv run print-concierge search "headphone holder" --limit 5
+```
+
+Check public import readiness:
+
+```sh
 uv run print-concierge import-status
 uv run print-concierge slicer-presets
 ```
 
-Run the MCP server:
+Prepare a confirmation-required plan from a trusted Bambuddy archive item:
+
+```sh
+uv run print-concierge prepare \
+  --archive-id 8 \
+  --printer-id 1 \
+  --material PLA \
+  --profile 0.2mm
+```
+
+`prepare` does not queue a print. It only creates a plan that must go through confirmation.
+
+## MCP Server
+
+Start the MCP server from the repository:
 
 ```sh
 set -a
@@ -73,7 +127,7 @@ set +a
 uv run print-concierge-mcp
 ```
 
-Configure your MCP client to launch that command from this repository. Example:
+Example MCP client configuration:
 
 ```json
 {
@@ -90,11 +144,15 @@ Configure your MCP client to launch that command from this repository. Example:
 }
 ```
 
-Safe agent workflow:
+For host-specific skill packages, see [`docs/installable-skills.md`](docs/installable-skills.md).
+
+## Agent Workflow
+
+A typical agent flow should use the tools in this order:
 
 1. `search_archive_or_models(query, limit)`
-2. User chooses a candidate.
-3. For public candidates, `import_public_candidate(...)` verifies/imports the file into Bambuddy first.
+2. User selects a candidate.
+3. If the candidate is public, call `import_public_candidate(...)` first.
 4. `list_printers()` and `get_printer_status(printer_id)`
 5. `prepare_print_plan(...)`
 6. `request_confirmation(plan)`
@@ -102,131 +160,90 @@ Safe agent workflow:
 8. `queue_confirmed_print(confirmation_token)`
 9. `get_job_status(job_id)`
 
-Public search notes:
+Do not load broad Bambuddy MCP tools into the same production agent profile. The safety value of Print Concierge comes from keeping all agent actions inside the curated workflow.
 
-- MakerWorld import depends on Bambuddy's MakerWorld integration and cloud download readiness.
-- Printables/Thingiverse imports need a trusted direct file URL. Already-sliced files can be verified directly.
-- STL/source files require explicit Bambuddy slicer preset refs from `list_slicer_presets` via `slice_options`.
-- Page-only public search results remain discovery-only until a trusted file URL is available.
+## Public Model Imports
 
-More detailed setup docs live in [`docs/setup.md`](docs/setup.md), and installable agent skill packages are documented in [`docs/installable-skills.md`](docs/installable-skills.md).
+Public search results are discovery candidates until they resolve to a verified Bambuddy library item.
 
----
+Supported import paths:
 
-## Product positioning
+- MakerWorld: uses Bambuddy's MakerWorld import integration.
+- Printables and Thingiverse: require a trusted direct file URL from the provider domain.
+- Already-sliced files: verified directly as `gcode` or `gcode.3mf`.
+- STL/source files: uploaded to Bambuddy, sliced with explicit preset refs from `list_slicer_presets`, then verified as sliced output before planning.
 
-Print Concierge is not "AI controls your 3D printer." It is a safety-first print workflow:
+Page-only search results remain discovery-only until a trusted file URL is available.
 
-1. User asks for an object in Telegram/Discord/Hermes/Claude/etc.
-2. The agent searches Bambuddy archives and enabled public indexes such as MakerWorld/Printables via 3DSEARCH.
-3. The agent returns a small shortlist with provenance and printability notes.
-4. The user selects one.
-5. If the selected model is a supported public result, the agent calls `import_public_candidate` to import/verify it into Bambuddy. MakerWorld uses Bambuddy's importer; Printables/Thingiverse imports require a trusted direct file URL, and source geometry requires explicit slicer presets.
-6. The backend prepares a print plan for the Bambuddy archive/imported trusted item.
-7. The backend displays the exact job details and generates a short-lived confirmation token.
-8. The user confirms.
-9. Only then does the backend queue the trusted archive item through Bambuddy, manual-start by default.
-10. The assistant monitors status. Emergency pause/cancel stays in Bambuddy for V1.
+## Safety Model
 
-## Priority order
+Print Concierge treats agent clients as untrusted planners. Backend code owns the policy boundary.
 
-1. Security
-2. Trust
-3. Reliability
-4. Convenience
-5. AI magic
+The queueing path requires:
 
-## Target users
+- a trusted Bambuddy archive or imported library file;
+- a file hash;
+- printer, material, and profile details;
+- a deterministic plan hash;
+- a user/session binding;
+- a short-lived confirmation token;
+- a confirmed queue request through the runtime gateway.
 
-- Bambu Lab owners who want less browsing/slicing friction.
-- Bambuddy users who want a chat-native workflow.
-- Self-hosted/homelab users who prefer local-first automation.
-- Makerspaces/schools that need approval-based shared printer workflows.
-- Small print farms that want chat-based job intake and status.
+The agent never receives a direct print-start tool. Emergency pause and cancel controls remain in Bambuddy for this version.
 
-## Primary tagline candidates
+## Configuration Reference
 
-- Find it. Pick it. Print it. From chat.
-- A safe AI print concierge for Bambu and Bambuddy.
-- Secure, human-approved 3D printing from chat.
-- Ask for the object. Approve the job. Let Bambuddy print.
-
-## Why open source
-
-This project controls a physical device, so inspectability is part of the product.
-
-Open source helps with:
-
-- trust in safety logic;
-- community review of risky flows;
-- self-hosted credibility;
-- easier adoption by Bambuddy/Hermes/MCP users;
-- plugin contributions for new model repositories;
-- avoiding fear around credentials, serials, cameras, and physical control.
-
-## Existing relevant ecosystem
-
-- **Bambuddy:** self-hosted Bambu Lab print archive/control system.
-- **bambuddy-mcp:** existing MCP server exposing Bambuddy's REST API dynamically from `/openapi.json`.
-- **Hermes Agent:** good front-end/orchestrator because it already supports Telegram, tools, skills, MCP, memory, cron/background jobs, browser/web search, and confirmations.
-- **Claude Desktop / Claude Code / Cursor / Codex-like agents:** possible clients if the project exposes an MCP server and/or HTTP API.
-
-## Important distinction
-
-The existing `bambuddy-mcp` server is a control/API layer. Print Concierge is the intent and safety workflow layer:
-
-- search and rank models;
-- present choices;
-- prepare print plans;
-- enforce human confirmation;
-- call Bambuddy only through safe high-level actions;
-- monitor and notify.
-
-## Repository docs
-
-- `ROADMAP.md` — phased implementation plan.
-- `SECURITY.md` — threat model, safety principles, and required controls.
-- `ARCHITECTURE.md` — proposed system layers and components.
-- `MARKETING.md` — launch audiences, messaging, and demo strategy.
-- `IMPLEMENTATION_PLAN.md` — bite-sized build plan for the initial MVP.
-- `docs/setup.md` — local CLI/MCP setup instructions.
-- `docs/installable-skills.md` — Claude, Codex, Hermes, and OpenClaw skill packaging.
-- `docs/security-review.md` — current security review and residual risks.
-- `docs/github-launch.md` — promotional copy for publishing the open-source project.
-
-## Local Smoke Test
-
-Create a local `.env` from `.env.example`, then load it before running the CLI:
+Common environment variables:
 
 ```sh
-set -a
-source .env
-set +a
-uv run print-concierge printers
-uv run print-concierge archives
-uv run print-concierge search "cable holder"
-uv run print-concierge import-status
-uv run print-concierge slicer-presets
-uv run print-concierge status 1
-uv run print-concierge import-public --candidate-json '<selected supported public result JSON>'
-uv run print-concierge prepare --archive-id 8 --printer-id 1 --material PLA --profile 0.2mm
-uv run print-concierge-mcp
+BAMBUDDY_BASE_URL=http://YOUR-BAMBUDDY-HOST:8000
+BAMBUDDY_API_KEY=replace-with-a-least-privilege-token
+PRINT_CONCIERGE_STATE_DB=~/.print-concierge/state.sqlite3
+PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true
+PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=true
+PRINT_CONCIERGE_PUBLIC_IMPORT_MAX_BYTES=157286400
+PRINT_CONCIERGE_PUBLIC_IMPORT_SLICE_WAIT_SECONDS=300
 ```
 
-These commands are read-only except `prepare`, which only builds a confirmation-required plan for a Bambuddy archive/imported trusted item. Queueing a print requires `request_confirmation` followed by `queue_confirmed_print` through the confirmation-aware gateway.
-
-By default, `search` combines Bambuddy archives with public model-site search through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other 3D model platforms. Public search results are discovery candidates until imported/verified. `import_public_candidate` supports MakerWorld through Bambuddy, plus Printables/Thingiverse candidates that include a trusted direct file URL. Already-sliced files (`.gcode`, `.gcode.3mf`, or a Bambuddy-verified sliced `.3mf`) can be verified directly; STL/source-only files require explicit Bambuddy slicer presets from `list_slicer_presets` via `slice_options`, then the sliced output is verified before it becomes queueable. Disable public web search only when you want archive-only mode:
+Optional external search configuration:
 
 ```sh
-export PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=false
+PRINT_CONCIERGE_MAKERWORLD_SEARCH_URL=https://search.example/makerworld?q={query}
+PRINT_CONCIERGE_PRINTABLES_SEARCH_URL=https://search.example/printables?q={query}
+PRINT_CONCIERGE_EXTERNAL_SEARCH_PROVIDERS=[{"name":"thangs","url":"https://search.example/thangs?q={query}","result_path":"items"}]
 ```
 
-External JSON search backends can also be added when you want your own indexed/ranked search service:
+More detailed setup instructions are in [`docs/setup.md`](docs/setup.md).
+
+## Project Structure
+
+- [`src/print_concierge`](src/print_concierge) - application code
+- [`tests`](tests) - unit and workflow tests
+- [`skills/print-concierge`](skills/print-concierge) - canonical skill package
+- [`packages`](packages) - host-specific shims
+- [`docs`](docs) - setup, security, and release notes
+
+## Development
+
+Install development dependencies:
 
 ```sh
-export PRINT_CONCIERGE_MAKERWORLD_SEARCH_URL='https://search.example/makerworld?q={query}'
-export PRINT_CONCIERGE_PRINTABLES_SEARCH_URL='https://search.example/printables?q={query}'
-export PRINT_CONCIERGE_EXTERNAL_SEARCH_PROVIDERS='[{"name":"thangs","url":"https://search.example/thangs?q={query}","result_path":"items"}]'
+uv sync --extra dev --extra mcp
 ```
 
-See `docs/installable-skills.md` for Claude, Codex, Hermes, and OpenClaw skill packaging.
+Run checks:
+
+```sh
+uv run pytest
+uv run python -m compileall -q src
+uv build
+uvx bandit -r src
+uvx pip-audit .
+git diff --check
+```
+
+## Security
+
+See [`SECURITY.md`](SECURITY.md) and [`docs/security-review.md`](docs/security-review.md).
+
+If you find a security issue, do not include printer credentials, API keys, serial numbers, access codes, camera URLs, or private network details in public reports.
