@@ -18,6 +18,24 @@ class FakeArchive:
     def list_archives(self):
         return [{"archive_id": "a1", "title": "Cable clip"}]
 
+    def search(self, query, **kwargs):
+        from print_concierge.search.base import ModelSearchResult
+
+        return (
+            ModelSearchResult(
+                provider="local_archive",
+                result_id="a1",
+                title="Cable clip",
+                license="CC0",
+                profile="0.20mm",
+                source="bambuddy://archives/a1",
+                archive_id="a1",
+                file_name="clip.3mf",
+                file_hash="abc123",
+                metadata={"raw": {"access_code": "12345678"}, "score": 0.91},
+            ),
+        )
+
     def select(self, archive_id, model_id=None):
         from print_concierge.search.base import ModelSearchResult
 
@@ -57,6 +75,33 @@ def test_cli_uses_env_configured_bambuddy_client_by_default(monkeypatch, capsys)
     assert exit_code == 0
     assert parse(capsys.readouterr().out) == [
         {"archive_id": "a1", "title": "Cable clip"}
+    ]
+
+
+def test_cli_search_returns_normalized_options(capsys):
+    exit_code = main(
+        ["search", "cable clip", "--limit", "1"],
+        archive_provider=FakeArchive(),
+    )
+
+    assert exit_code == 0
+    output = parse(capsys.readouterr().out)
+    assert output == [
+        {
+            "archive_id": "a1",
+            "description": "",
+            "file_hash": "abc123",
+            "file_name": "clip.3mf",
+            "license": "CC0",
+            "metadata": {"score": 0.91},
+            "model_id": None,
+            "profile": "0.20mm",
+            "provider": "local_archive",
+            "result_id": "a1",
+            "source": "bambuddy://archives/a1",
+            "title": "Cable clip",
+            "warnings": [],
+        }
     ]
 
 

@@ -8,6 +8,9 @@ from typing import Any, Sequence
 
 from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan, prepare_print_plan
+from print_concierge.search.base import ModelSearchResult
+from print_concierge.search.composite import CompositeSearchProvider
+from print_concierge.search.external import configured_external_providers
 from print_concierge.search.local_archive import LocalArchiveSearchProvider
 
 
@@ -16,6 +19,7 @@ def main(
     *,
     client: Any = None,
     archive_provider: Any = None,
+    search_provider: Any = None,
     confirmation_service: Any = None,
     output: Any = None,
 ) -> int:
@@ -24,8 +28,11 @@ def main(
     out = output or sys.stdout
     client = client if client is not None else _default_client()
     archive_provider = archive_provider or _default_archive_provider(client)
+    search_provider = search_provider or _default_search_provider(archive_provider)
 
-    if args.command == "printers":
+    if args.command == "search":
+        _emit(out, search_provider.search(args.query, limit=args.limit))
+    elif args.command == "printers":
         _emit(out, client.list_printers() if client else [])
     elif args.command == "status":
         _emit(
@@ -80,6 +87,9 @@ def main(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="print-concierge")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    search = subparsers.add_parser("search")
+    search.add_argument("query")
+    search.add_argument("--limit", type=int, default=5)
     subparsers.add_parser("printers")
     status = subparsers.add_parser("status")
     status.add_argument("printer_id")
@@ -112,6 +122,14 @@ def _default_archive_provider(client: Any) -> LocalArchiveSearchProvider:
     return LocalArchiveSearchProvider(client.list_archives())
 
 
+def _default_search_provider(archive_provider: Any) -> CompositeSearchProvider:
+    providers = []
+    if hasattr(archive_provider, "search"):
+        providers.append(archive_provider)
+    providers.extend(configured_external_providers())
+    return CompositeSearchProvider(providers)
+
+
 def _emit(output: Any, payload: Any) -> None:
     output.write(json.dumps(_jsonable(payload), sort_keys=True) + "\n")
 
@@ -119,6 +137,8 @@ def _emit(output: Any, payload: Any) -> None:
 def _jsonable(value: Any) -> Any:
     if isinstance(value, PrintPlan):
         return value.to_dict()
+    if isinstance(value, ModelSearchResult):
+        return value.to_public_dict()
     if hasattr(value, "to_dict"):
         return value.to_dict()
     if is_dataclass(value):

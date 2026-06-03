@@ -3,8 +3,11 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from print_concierge import planner as print_planner
+from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan
 from print_concierge.search.base import ModelSearchResult
+from print_concierge.search.composite import CompositeSearchProvider
+from print_concierge.search.external import configured_external_providers
 from print_concierge.search.local_archive import LocalArchiveSearchProvider
 
 
@@ -21,11 +24,12 @@ def get_printer_status(printer_id: str, *, client: Any = None) -> dict[str, Any]
 def search_archive_or_models(
     query: str,
     *,
+    limit: int | None = None,
     archive_provider: Any = None,
     search_provider: Any = None,
 ) -> list[dict[str, Any]]:
-    provider = archive_provider or search_provider or LocalArchiveSearchProvider()
-    return [_jsonable(result) for result in provider.search(query)]
+    provider = archive_provider or search_provider or _default_search_provider()
+    return [_jsonable(result) for result in _search_provider(provider, query, limit=limit)]
 
 
 def prepare_print_plan(
@@ -89,9 +93,10 @@ def request_confirmation(plan: PrintPlan | Mapping[str, Any], *, confirmation_se
     return _jsonable(result)
 
 
-def queue_confirmed_print(confirmation_token: str, *, client: Any) -> dict[str, Any]:
-    if hasattr(client, "queue_confirmed_print"):
-        result = dict(client.queue_confirmed_print(confirmation_token))
+def queue_confirmed_print(confirmation_token: str, *, client: Any = None) -> dict[str, Any]:
+    gateway = client or _default_queue_gateway()
+    if hasattr(gateway, "queue_confirmed_print"):
+        result = dict(gateway.queue_confirmed_print(confirmation_token))
         if not result.get("job_id"):
             raise ValueError("queue_confirmed_print response must include job_id")
         return result
@@ -99,7 +104,7 @@ def queue_confirmed_print(confirmation_token: str, *, client: Any) -> dict[str, 
 
 
 def get_job_status(job_id: str, *, client: Any = None) -> dict[str, Any]:
-    if client:
+    if client and hasattr(client, "get_job_status"):
         return dict(client.get_job_status(job_id))
     return {"job_id": job_id, "status": "unknown"}
 
@@ -114,15 +119,125 @@ def main() -> None:
         ) from exc
 
     server = FastMCP("print-concierge")
-    server.tool()(list_printers)
-    server.tool()(get_printer_status)
-    server.tool()(search_archive_or_models)
-    server.tool()(prepare_print_plan)
-    server.tool()(show_print_plan)
-    server.tool()(request_confirmation)
-    server.tool()(queue_confirmed_print)
-    server.tool()(get_job_status)
+
+    def list_printers() -> list[dict[str, Any]]:
+        return globals()["list_printers"](client=_default_bambuddy_client())
+
+    def get_printer_status(printer_id: str) -> dict[str, Any]:
+        return globals()["get_printer_status"](printer_id, client=_default_bambuddy_client())
+
+    def search_archive_or_models(query: str, limit: int = 5) -> list[dict[str, Any]]:
+        return globals()["search_archive_or_models"](query, limit=limit)
+
+    def prepare_print_plan(
+        *,
+        selected: dict[str, Any],
+        printer: dict[str, Any],
+        material: dict[str, Any],
+        profile: dict[str, Any],
+        user_id: str,
+        session_id: str,
+        file_bytes: bytes | None = None,
+        file_path: str | None = None,
+    ) -> dict[str, Any]:
+        return globals()["prepare_print_plan"](
+            selected=selected,
+            printer=printer,
+            material=material,
+            profile=profile,
+            user_id=user_id,
+            session_id=session_id,
+            file_bytes=file_bytes,
+            file_path=file_path,
+        )
+
+    def show_print_plan(plan: dict[str, Any]) -> dict[str, Any]:
+        return globals()["show_print_plan"](plan)
+
+    def request_confirmation(plan: dict[str, Any]) -> dict[str, Any]:
+        return globals()["request_confirmation"](
+            plan,
+            confirmation_service=_default_confirmation_service(),
+        )
+
+    def queue_confirmed_print(confirmation_token: str) -> dict[str, Any]:
+        return globals()["queue_confirmed_print"](
+            confirmation_token,
+            client=_default_queue_gateway(),
+        )
+
+    def get_job_status(job_id: str) -> dict[str, Any]:
+        return globals()["get_job_status"](job_id, client=_default_bambuddy_client())
+
+    for tool in (
+        list_printers,
+        get_printer_status,
+        search_archive_or_models,
+        prepare_print_plan,
+        show_print_plan,
+        request_confirmation,
+        queue_confirmed_print,
+        get_job_status,
+    ):
+        server.tool()(tool)
     server.run()
+
+
+def _default_bambuddy_client() -> Any:
+    try:
+        return BambuddyClient()
+    except BambuddyError:
+        return None
+
+
+def _default_archive_provider(client: Any = None) -> LocalArchiveSearchProvider:
+    client = client if client is not None else _default_bambuddy_client()
+    if client is None or not hasattr(client, "list_archives"):
+        return LocalArchiveSearchProvider()
+    return LocalArchiveSearchProvider(client.list_archives())
+
+
+def _configured_external_search_providers() -> list[Any]:
+    return list(configured_external_providers())
+
+
+def _default_search_provider() -> Any:
+    providers = [_default_archive_provider(_default_bambuddy_client())]
+    providers.extend(_configured_external_search_providers())
+    return CompositeSearchProvider(providers)
+
+
+def _search_provider(provider: Any, query: str, *, limit: int | None) -> list[Any]:
+    if limit is None:
+        return list(provider.search(query))
+    try:
+        results = provider.search(query, limit=limit)
+    except TypeError as exc:
+        if "unexpected keyword argument" not in str(exc):
+            raise
+        results = provider.search(query)
+    return list(results)[:limit]
+
+
+def _default_confirmation_service() -> Any:
+    return _MissingConfirmationService()
+
+
+def _default_queue_gateway() -> Any:
+    return _ConfirmationAwareQueueGateway(_default_bambuddy_client())
+
+
+class _MissingConfirmationService:
+    def request_confirmation(self, plan: Mapping[str, Any]) -> dict[str, Any]:
+        raise TypeError("MCP confirmation service is not configured")
+
+
+class _ConfirmationAwareQueueGateway:
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def queue_confirmed_print(self, confirmation_token: str) -> dict[str, Any]:
+        raise TypeError("MCP confirmation-aware queue gateway is not configured")
 
 
 def _jsonable(value: Any) -> Any:
@@ -134,7 +249,7 @@ def _jsonable(value: Any) -> Any:
             payload["session_id"] = session_id
         return payload
     if isinstance(value, ModelSearchResult):
-        return value.to_dict()
+        return value.to_public_dict()
     if hasattr(value, "to_dict"):
         return value.to_dict()
     if hasattr(value, "__dict__") and value.__class__.__module__.startswith("print_concierge."):

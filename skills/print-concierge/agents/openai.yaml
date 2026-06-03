@@ -1,0 +1,17 @@
+name: print-concierge
+version: 0.1.0
+summary: Safe Print Concierge skill package for OpenAI/Codex-style agents.
+skill: ../SKILL.md
+references:
+  - ../references/workflow.md
+  - ../references/safety.md
+mcp:
+  command: uv
+  args:
+    - run
+    - print-concierge-mcp
+safety:
+  requires_explicit_human_confirmation: true
+  backend_enforced_confirmation: true
+  no_direct_start: true
+  treats_model_metadata_as_untrusted: true

@@ -38,6 +38,13 @@ class ModelSearchResult:
             "metadata": dict(self.metadata),
         }
 
+    def to_public_dict(self) -> dict[str, Any]:
+        payload = self.to_dict()
+        payload["metadata"] = {
+            key: value for key, value in self.metadata.items() if key != "raw"
+        }
+        return payload
+
 
 class SearchProvider(ABC):
     provider_name: str

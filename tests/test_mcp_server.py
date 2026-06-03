@@ -1,3 +1,7 @@
+import inspect
+import sys
+import types
+
 import pytest
 
 from print_concierge.interfaces import mcp_server
@@ -36,6 +40,62 @@ class FakeArchive:
                 model_id="m1",
                 file_name="clip.3mf",
                 file_hash="abc123",
+                metadata={"raw": {"serial_number": "ABC123"}, "score": 0.9},
+            ),
+        )
+
+
+class FakeArchiveClient:
+    def list_archives(self):
+        return [
+            {
+                "archive_id": "runtime-a1",
+                "model_id": "runtime-m1",
+                "title": "Runtime cable clip",
+                "license": "CC0",
+                "profile": "0.20mm",
+                "source": "bambuddy://archives/runtime-a1",
+            }
+        ]
+
+
+class FakeExternalProvider:
+    def search(self, query, **kwargs):
+        return (
+            ModelSearchResult(
+                provider="external",
+                result_id=f"ext:{query}",
+                title=f"External {query}",
+                description="",
+                license="CC0",
+                profile="0.20mm",
+                source="https://example.test/model",
+            ),
+        )
+
+
+class FakeLimitedProvider:
+    def __init__(self):
+        self.kwargs = None
+
+    def search(self, query, **kwargs):
+        self.kwargs = kwargs
+        return (
+            ModelSearchResult(
+                provider="external",
+                result_id="ext-1",
+                title="First",
+                license="CC0",
+                profile="0.20mm",
+                source="https://example.test/1",
+            ),
+            ModelSearchResult(
+                provider="external",
+                result_id="ext-2",
+                title="Second",
+                license="CC0",
+                profile="0.20mm",
+                source="https://example.test/2",
             ),
         )
 
@@ -53,6 +113,7 @@ def test_mcp_tool_functions_are_callable_without_mcp_sdk():
     assert mcp_server.list_printers(client=FakeClient()) == [{"id": "p1", "name": "A1 mini"}]
     assert mcp_server.get_printer_status("p1", client=FakeClient())["status"] == "idle"
     assert mcp_server.search_archive_or_models("clip", archive_provider=FakeArchive())[0]["title"] == "Cable clip"
+    assert mcp_server.search_archive_or_models("clip", archive_provider=FakeArchive())[0]["metadata"] == {"score": 0.9}
 
 
 def test_mcp_confirmation_and_queue_are_separate_steps():
@@ -124,3 +185,66 @@ def test_mcp_request_confirmation_rejects_dict_without_plan_hash_or_session():
             },
             confirmation_service=FakeConfirmation(),
         )
+
+
+def test_mcp_registered_tool_wrappers_hide_injected_runtime_objects(monkeypatch):
+    captured = []
+
+    class FakeFastMCP:
+        def __init__(self, name):
+            self.name = name
+
+        def tool(self):
+            def register(func):
+                captured.append(func)
+                return func
+
+            return register
+
+        def run(self):
+            return None
+
+    monkeypatch.setitem(sys.modules, "mcp", types.ModuleType("mcp"))
+    monkeypatch.setitem(sys.modules, "mcp.server", types.ModuleType("mcp.server"))
+    fake_fastmcp = types.ModuleType("mcp.server.fastmcp")
+    fake_fastmcp.FastMCP = FakeFastMCP
+    monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fake_fastmcp)
+
+    mcp_server.main()
+
+    registered = {func.__name__: inspect.signature(func) for func in captured}
+    assert "search_archive_or_models" in registered
+    forbidden = {
+        "archive_provider",
+        "client",
+        "confirmation_service",
+        "print_client",
+        "search_provider",
+    }
+    for signature in registered.values():
+        assert forbidden.isdisjoint(signature.parameters)
+
+
+def test_default_search_uses_runtime_archive_and_external_providers(monkeypatch):
+    monkeypatch.setattr(mcp_server, "_default_bambuddy_client", lambda: FakeArchiveClient())
+    monkeypatch.setattr(mcp_server, "_configured_external_search_providers", lambda: [FakeExternalProvider()])
+
+    results = mcp_server.search_archive_or_models("clip")
+
+    assert [result["title"] for result in results] == ["Runtime cable clip", "External clip"]
+
+
+def test_mcp_search_accepts_limit_for_public_tool_shape():
+    provider = FakeLimitedProvider()
+
+    results = mcp_server.search_archive_or_models("clip", limit=1, search_provider=provider)
+
+    assert provider.kwargs == {"limit": 1}
+    assert [result["title"] for result in results] == ["First"]
+
+
+def test_mcp_job_status_degrades_when_client_has_no_job_status_method():
+    assert mcp_server.get_job_status("job-1", client=FakeArchiveClient()) == {
+        "job_id": "job-1",
+        "status": "unknown",
+    }

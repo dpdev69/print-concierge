@@ -18,6 +18,7 @@ mcp = [
 
 [project.scripts]
 print-concierge = "print_concierge.interfaces.cli:main"
+print-concierge-mcp = "print_concierge.interfaces.mcp_server:main"
 
 [build-system]
 requires = ["hatchling"]

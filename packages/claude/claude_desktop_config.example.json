@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "print-concierge": {
+      "command": "uv",
+      "args": ["run", "print-concierge-mcp"],
+      "env": {
+        "BAMBUDDY_BASE_URL": "http://localhost:8000",
+        "BAMBUDDY_API_KEY": "${BAMBUDDY_API_KEY}",
+        "BAMBUDDY_CENSOR_ACCESS_CODE": "true",
+        "BAMBUDDY_CENSOR_SERIAL": "true"
+      }
+    }
+  }
+}

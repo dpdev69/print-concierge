@@ -94,8 +94,20 @@ source .env
 set +a
 uv run print-concierge printers
 uv run print-concierge archives
+uv run print-concierge search "cable holder"
 uv run print-concierge status 1
 uv run print-concierge prepare --archive-id 8 --printer-id 1 --material PLA --profile 0.2mm
+uv run print-concierge-mcp
 ```
 
 These commands are read-only except `prepare`, which only builds a confirmation-required plan. Queueing a print still requires the confirmation-aware gateway.
+
+External model search can be added by pointing the configurable adapters at a JSON search backend:
+
+```sh
+export PRINT_CONCIERGE_MAKERWORLD_SEARCH_URL='https://search.example/makerworld?q={query}'
+export PRINT_CONCIERGE_PRINTABLES_SEARCH_URL='https://search.example/printables?q={query}'
+export PRINT_CONCIERGE_EXTERNAL_SEARCH_PROVIDERS='[{"name":"thangs","url":"https://search.example/thangs?q={query}","result_path":"items"}]'
+```
+
+See `docs/installable-skills.md` for Claude, Codex, Hermes, and OpenClaw skill packaging.

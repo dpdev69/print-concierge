@@ -1,0 +1,27 @@
+name: print-concierge
+version: 0.1.0
+description: Hermes shim for safe Print Concierge MCP workflows.
+canonical_skill: ../../skills/print-concierge/SKILL.md
+entrypoint: handler.js
+mcp:
+  server: print-concierge
+  command: uv
+  args:
+    - run
+    - print-concierge-mcp
+tools:
+  - search_archive_or_models
+  - list_printers
+  - get_printer_status
+  - prepare_print_plan
+  - request_confirmation
+  - queue_confirmed_print
+  - get_job_status
+safety:
+  explicit_human_confirmation: required
+  confirmation: backend_enforced_token_validation
+  exact_print_job_binding: required
+  untrusted_model_metadata: true
+  do_not_expose: Bambuddy credentials, tokens, serial numbers, access codes, camera URLs
+  least_privilege: true
+  no_direct_start: true
