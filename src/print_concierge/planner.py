@@ -25,7 +25,7 @@ def prepare_print_plan(
     session_id: str,
     file_bytes: bytes | None = None,
     file_path: str | Path | None = None,
-    confirmation_service: Any = None,
+    approval_service: Any = None,
     print_client: Any = None,
 ) -> PrintPlan:
     result = _coerce_result(selected)

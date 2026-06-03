@@ -26,8 +26,9 @@ def test_setup_docs_cover_runtime_configuration_and_safe_workflow():
         "uv sync",
         "uv run print-concierge search",
         "uv run print-concierge-mcp",
-        "request_confirmation",
-        "queue_confirmed_print",
+        "create_print_request",
+        "get_print_request_status",
+        "approvals approve",
         "do not load broad Bambuddy MCP",
     ]
     for item in required:

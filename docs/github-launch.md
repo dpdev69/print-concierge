@@ -2,26 +2,26 @@
 
 ## GitHub repo description
 
-Safe AI print concierge for Bambuddy: find 3D models, import supported public candidates, prepare print plans, require human confirmation, and queue prints through a guarded MCP workflow.
+Safe AI print concierge for Bambuddy: find 3D models, import supported public candidates, prepare print plans, and queue only after local human approval.
 
 ## README hero copy
 
 Find it. Pick it. Print it.
 
-Print Concierge is a safe AI print concierge for Bambuddy and Bambu Lab workflows. Ask for the object you need, get model options from your archive plus public model search, import/verify public candidates when needed with `import_public_candidate`, review an exact print plan for a trusted item, approve a short-lived confirmation token, and let Bambuddy queue the job.
+Print Concierge is a safe AI print concierge for Bambuddy and Bambu Lab workflows. Ask for the object you need, get model options from your archive plus public model search, import/verify public candidates when needed with `import_public_candidate`, review an exact print plan for a trusted item, and approve queueing through a local human channel.
 
 It is not raw AI control of a printer. It is an inspectable, open-source safety layer between chat agents and a physical machine.
 
 ## Short pitch
 
-Print Concierge lets Claude, Codex, Hermes, OpenClaw, and other MCP clients help with 3D printing without giving them unchecked printer control. It searches Bambuddy archives and public model indexes like MakerWorld and Printables through 3DSEARCH, imports supported public candidates with `import_public_candidate`, prepares immutable print plans only for archive/imported trusted items, and requires backend-enforced human confirmation before queueing.
+Print Concierge lets Claude, Codex, Hermes, OpenClaw, and other MCP clients help with 3D printing without giving them unchecked printer control. It searches Bambuddy archives and public model indexes like MakerWorld and Printables through 3DSEARCH, imports supported public candidates with `import_public_candidate`, prepares immutable print plans only for archive/imported trusted items, and creates pending print requests that must be approved outside the model-visible MCP channel before queueing.
 
 ## Taglines
 
 - Find it. Pick it. Print it.
 - A safe AI print concierge for Bambuddy.
 - Ask for the object. Approve the job. Keep the printer under control.
-- MCP-native 3D print search and confirmation for Bambuddy.
+- MCP-native 3D print search and local approval for Bambuddy.
 
 ## Topics
 
@@ -37,10 +37,10 @@ The basic flow:
 2. It searches your Bambuddy archive plus public model indexes like MakerWorld and Printables; public candidates must be imported/verified before printing.
 3. You get a shortlist of options.
 4. Supported public candidates are imported/verified with `import_public_candidate`, then the backend prepares an exact print plan for a trusted item.
-5. You explicitly confirm that plan.
-6. Only then can the job be queued through Bambuddy.
+5. Print Concierge creates a pending request.
+6. You approve and queue it locally, outside the agent channel.
 
-The key design choice: the agent never gets a raw "start printer" tool. All clients go through the same MCP workflow: search, prepare, request confirmation, queue confirmed print, check status.
+The key design choice: the agent never gets a raw "start printer" tool or an MCP queue tool. All clients go through the same MCP workflow: search, prepare, create pending request, poll status. Queueing happens through the local approval CLI/admin channel.
 
 This is built for the Bambuddy crowd, self-hosters, makerspaces, and anyone who wants the convenience of AI print help without handing a physical machine to a chatbot.
 
@@ -50,9 +50,9 @@ Repo: https://github.com/dpdev69/print-concierge
 
 I made a small open-source project for safer AI-assisted 3D printing.
 
-It is called Print Concierge. It sits between Claude/Codex/Hermes/OpenClaw-style agents and Bambuddy. The agent can search model options, import/verify supported public candidates, and prepare print plans, but it cannot directly start a print. The backend requires a human confirmation token bound to the exact file hash, printer, material/profile, user/session, and plan hash before queueing.
+It is called Print Concierge. It sits between Claude/Codex/Hermes/OpenClaw-style agents and Bambuddy. The agent can search model options, import/verify supported public candidates, prepare print plans, and create pending print requests, but it cannot directly queue or start a print. Local approval is bound to the exact file hash, printer, material/profile, user/session, and plan hash before queueing.
 
-Current V1.1:
+Current V1.2:
 
 - Bambuddy archive search
 - public model search via 3DSEARCH across MakerWorld, Printables, Thingiverse, etc.
@@ -60,7 +60,7 @@ Current V1.1:
 - Printables/Thingiverse direct-file import/verify through `import_public_candidate`, including source slicing when explicit presets are provided
 - CLI and MCP server
 - installable skill packages for Claude, Codex, Hermes, and OpenClaw
-- local SQLite confirmation state
+- local SQLite approval state
 - manual-start queue behavior by default
 
 I built it because I wanted the magic of "find me the right thing and set up the print" without giving an agent unchecked control of a physical machine.
@@ -68,7 +68,7 @@ I built it because I wanted the magic of "find me the right thing and set up the
 ## Maintainer notes
 
 - Lead with safety, not "AI controls your printer."
-- Show the confirmation step in demos.
+- Show the local approval step in demos.
 - Mention Bambuddy early; it is the adoption wedge.
 - Be precise about public imports: Printables/Thingiverse need trusted direct file URLs; STL/source-only files require explicit preset refs and successful Bambuddy slice verification.
-- Use screenshots or terminal clips showing search, prepare, confirm, queue, status.
+- Use screenshots or terminal clips showing search, prepare, request, approve, queue, status.

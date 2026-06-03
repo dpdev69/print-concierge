@@ -1,9 +1,13 @@
+import io
 import json
 
 from print_concierge.interfaces.cli import main
 
 
 class FakeClient:
+    def __init__(self):
+        self.payloads = []
+
     def list_printers(self):
         return [{"id": "p1", "name": "A1 mini"}]
 
@@ -37,6 +41,10 @@ class FakeClient:
             "file_size": 123456,
             "metadata": {"source_url": "https://makerworld.com/en/models/1760116"},
         }
+
+    def queue_print(self, payload):
+        self.payloads.append(payload)
+        return {"job_id": "42", "status": "pending", "queue_item": {"id": 42}}
 
 
 class FakeArchive:
@@ -294,3 +302,125 @@ def test_cli_prepares_plan_without_queueing(capsys):
     assert output["material_profile"] == "PLA / 0.20mm"
     assert output["status"] == "confirmation_required"
     assert "confirmation_token" not in output
+
+
+def test_cli_local_approval_flow_queues_only_after_approval(monkeypatch, tmp_path):
+    monkeypatch.setenv("PRINT_CONCIERGE_STATE_DB", str(tmp_path / "state.sqlite3"))
+    client = FakeClient()
+    archive = FakeArchive()
+    prepared_out = io.StringIO()
+
+    assert (
+        main(
+            [
+                "prepare",
+                "--archive-id",
+                "a1",
+                "--printer-id",
+                "1",
+                "--material",
+                "PLA",
+                "--profile",
+                "0.20mm",
+            ],
+            client=client,
+            archive_provider=archive,
+            output=prepared_out,
+        )
+        == 0
+    )
+    plan = json.loads(prepared_out.getvalue())
+
+    request_out = io.StringIO()
+    assert (
+        main(
+            ["request-print", "--plan-json", json.dumps(plan)],
+            client=client,
+            archive_provider=archive,
+            output=request_out,
+        )
+        == 0
+    )
+    request = json.loads(request_out.getvalue())
+    assert request["status"] == "pending_user_approval"
+    assert "token" not in request
+
+    show_out = io.StringIO()
+    assert (
+        main(
+            ["approvals", "show", request["request_id"]],
+            client=client,
+            archive_provider=archive,
+            output=show_out,
+        )
+        == 0
+    )
+    assert json.loads(show_out.getvalue())["status"] == "pending_user_approval"
+
+    queue_out = io.StringIO()
+    assert (
+        main(
+            ["approvals", "approve", request["request_id"], "--queue"],
+            client=client,
+            archive_provider=archive,
+            output=queue_out,
+        )
+        == 0
+    )
+    queued = json.loads(queue_out.getvalue())
+    assert queued["status"] == "queued"
+    assert queued["queue_result"]["job_id"] == "42"
+    assert client.payloads[0]["_print_concierge_confirmed"] is True
+    assert client.payloads[0]["approval"]["request_id"] == request["request_id"]
+
+
+def test_cli_can_queue_previously_approved_request(monkeypatch, tmp_path):
+    monkeypatch.setenv("PRINT_CONCIERGE_STATE_DB", str(tmp_path / "state.sqlite3"))
+    client = FakeClient()
+    archive = FakeArchive()
+    prepared_out = io.StringIO()
+    main(
+        [
+            "prepare",
+            "--archive-id",
+            "a1",
+            "--printer-id",
+            "1",
+            "--material",
+            "PLA",
+            "--profile",
+            "0.20mm",
+        ],
+        client=client,
+        archive_provider=archive,
+        output=prepared_out,
+    )
+    plan = json.loads(prepared_out.getvalue())
+    request_out = io.StringIO()
+    main(
+        ["request-print", "--plan-json", json.dumps(plan)],
+        client=client,
+        archive_provider=archive,
+        output=request_out,
+    )
+    request_id = json.loads(request_out.getvalue())["request_id"]
+
+    approve_out = io.StringIO()
+    main(
+        ["approvals", "approve", request_id],
+        client=client,
+        archive_provider=archive,
+        output=approve_out,
+    )
+    assert json.loads(approve_out.getvalue())["status"] == "approved"
+
+    queue_out = io.StringIO()
+    main(
+        ["approvals", "approve", request_id, "--queue"],
+        client=client,
+        archive_provider=archive,
+        output=queue_out,
+    )
+
+    assert json.loads(queue_out.getvalue())["status"] == "queued"
+    assert client.payloads[0]["approval"]["request_id"] == request_id

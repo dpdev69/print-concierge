@@ -15,11 +15,8 @@ class FakeClient:
     def get_printer_status(self, printer_id):
         return {"id": printer_id, "status": "idle"}
 
-    def queue_confirmed_print(self, confirmation_token):
-        return {"job_id": "job-1", "token": confirmation_token}
-
     def queue_print(self, payload):
-        raise AssertionError("raw queue_print must not be called with only a token")
+        raise AssertionError("MCP tools must not queue prints")
 
     def get_job_status(self, job_id):
         return {"job_id": job_id, "status": "queued"}
@@ -127,13 +124,18 @@ class FakeLimitedProvider:
         )
 
 
-class FakeConfirmation:
+class FakeApproval:
     def __init__(self):
         self.last_payload = None
 
-    def request_confirmation(self, plan):
+    def create_print_request(self, plan):
         self.last_payload = plan
-        return {"token": "confirm-1", "job_id": plan["job_id"]}
+        return {
+            "request_id": "req_test",
+            "status": "pending_user_approval",
+            "job_id": plan["job_id"],
+            "plan_hash": plan["plan_hash"],
+        }
 
 
 def test_mcp_tool_functions_are_callable_without_mcp_sdk():
@@ -143,7 +145,7 @@ def test_mcp_tool_functions_are_callable_without_mcp_sdk():
     assert mcp_server.search_archive_or_models("clip", archive_provider=FakeArchive())[0]["metadata"] == {"score": 0.9}
 
 
-def test_mcp_confirmation_and_queue_are_separate_steps():
+def test_mcp_print_request_creates_pending_approval_without_authorizing_secret():
     selected = FakeArchive().search("clip")[0]
     plan = mcp_server.prepare_print_plan(
         selected=selected,
@@ -154,34 +156,16 @@ def test_mcp_confirmation_and_queue_are_separate_steps():
         session_id="s1",
     )
 
-    confirmation = mcp_server.request_confirmation(plan, confirmation_service=FakeConfirmation())
-    queued = mcp_server.queue_confirmed_print("confirm-1", client=FakeClient())
+    request = mcp_server.create_print_request(plan, approval_service=FakeApproval())
 
     assert "confirmation_token" not in plan
-    assert confirmation["token"] == "confirm-1"
-    assert confirmation["job_id"] == plan["job_id"]
-    assert queued["job_id"] == "job-1"
+    assert "token" not in request
+    assert "confirmation_token" not in request
+    assert request["status"] == "pending_user_approval"
+    assert request["job_id"] == plan["job_id"]
 
 
-def test_mcp_queue_refuses_raw_bambuddy_client_token_only_bypass():
-    class RawClient:
-        def queue_print(self, payload):
-            raise AssertionError("queue_print bypass should not be reached")
-
-    with pytest.raises(TypeError, match="queue gateway"):
-        mcp_server.queue_confirmed_print("confirm-1", client=RawClient())
-
-
-def test_mcp_queue_rejects_ambiguous_gateway_response():
-    class AmbiguousGateway:
-        def queue_confirmed_print(self, confirmation_token):
-            return {"status": "queued"}
-
-    with pytest.raises(ValueError, match="job_id"):
-        mcp_server.queue_confirmed_print("confirm-1", client=AmbiguousGateway())
-
-
-def test_mcp_request_confirmation_uses_plan_hash_and_session_binding():
+def test_mcp_create_print_request_uses_plan_hash_and_session_binding():
     selected = FakeArchive().search("clip")[0]
     plan = mcp_server.prepare_print_plan(
         selected=selected,
@@ -191,18 +175,18 @@ def test_mcp_request_confirmation_uses_plan_hash_and_session_binding():
         user_id="u1",
         session_id="mcp-session-7",
     )
-    confirmation = FakeConfirmation()
+    approval = FakeApproval()
 
-    payload = mcp_server.request_confirmation(plan, confirmation_service=confirmation)
+    payload = mcp_server.create_print_request(plan, approval_service=approval)
 
-    assert payload["token"] == "confirm-1"
-    assert confirmation.last_payload["plan_hash"].startswith("sha256:")
-    assert confirmation.last_payload["session_id"] == "mcp-session-7"
+    assert payload["request_id"] == "req_test"
+    assert approval.last_payload["plan_hash"].startswith("sha256:")
+    assert approval.last_payload["session_id"] == "mcp-session-7"
 
 
-def test_mcp_request_confirmation_rejects_dict_without_plan_hash_or_session():
+def test_mcp_create_print_request_rejects_dict_without_plan_hash_or_session():
     with pytest.raises(ValueError, match="plan_hash"):
-        mcp_server.request_confirmation(
+        mcp_server.create_print_request(
             {
                 "job_id": "job-1",
                 "user_id": "u1",
@@ -210,7 +194,7 @@ def test_mcp_request_confirmation_rejects_dict_without_plan_hash_or_session():
                 "printer": {"printer_id": "p1"},
                 "material_profile": "PLA / 0.20mm",
             },
-            confirmation_service=FakeConfirmation(),
+            approval_service=FakeApproval(),
         )
 
 
@@ -241,10 +225,14 @@ def test_mcp_registered_tool_wrappers_hide_injected_runtime_objects(monkeypatch)
 
     registered = {func.__name__: inspect.signature(func) for func in captured}
     assert "search_archive_or_models" in registered
+    assert "create_print_request" in registered
+    assert "get_print_request_status" in registered
+    assert "queue_confirmed_print" not in registered
+    assert "request_confirmation" not in registered
     forbidden = {
         "archive_provider",
         "client",
-        "confirmation_service",
+        "approval_service",
         "print_client",
         "search_provider",
     }

@@ -9,6 +9,7 @@ from typing import Any, Sequence
 from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan, prepare_print_plan
 from print_concierge.public_imports import import_public_candidate
+from print_concierge.runtime import RuntimeApprovalService, RuntimeQueueGateway, RuntimeState
 from print_concierge.search.base import ModelSearchResult
 from print_concierge.search.composite import CompositeSearchProvider
 from print_concierge.search.external import (
@@ -24,7 +25,7 @@ def main(
     client: Any = None,
     archive_provider: Any = None,
     search_provider: Any = None,
-    confirmation_service: Any = None,
+    approval_service: Any = None,
     output: Any = None,
 ) -> int:
     parser = build_parser()
@@ -33,6 +34,7 @@ def main(
     client = client if client is not None else _default_client()
     archive_provider = archive_provider or _default_archive_provider(client)
     search_provider = search_provider or _default_search_provider(archive_provider)
+    approval_service = approval_service or RuntimeApprovalService(RuntimeState())
 
     if args.command == "search":
         _emit(out, search_provider.search(args.query, limit=args.limit))
@@ -114,20 +116,11 @@ def main(
             _emit(out, {"makerworld": client.get_makerworld_status()})
         else:
             _emit(out, {"makerworld": {"status": "unavailable", "can_download": False}})
-    elif args.command == "confirm":
-        if confirmation_service is None:
-            raise SystemExit("confirm requires an injected confirmation service in this build")
-        if hasattr(confirmation_service, "request_confirmation"):
-            _emit(out, confirmation_service.request_confirmation(args.plan_id))
-        else:
-            raise SystemExit("confirm requires plan-bound confirmation details")
-    elif args.command == "queue":
-        if client is None:
-            raise SystemExit("queue requires an injected Bambuddy client in this build")
-        if hasattr(client, "queue_confirmed_print"):
-            _emit(out, client.queue_confirmed_print(args.confirmation_token))
-        else:
-            raise SystemExit("queue requires a confirmation-aware queue gateway")
+    elif args.command == "request-print":
+        plan = json.loads(args.plan_json)
+        _emit(out, approval_service.create_print_request(plan))
+    elif args.command == "approvals":
+        _handle_approvals(args, out, approval_service=approval_service, client=client)
     else:
         parser.error("unknown command")
     return 0
@@ -166,11 +159,61 @@ def build_parser() -> argparse.ArgumentParser:
     import_public.add_argument("--slice-options-json")
     import_public.add_argument("--slice-wait-seconds", type=float)
     subparsers.add_parser("import-status")
-    confirm = subparsers.add_parser("confirm")
-    confirm.add_argument("plan_id")
-    queue = subparsers.add_parser("queue")
-    queue.add_argument("confirmation_token")
+    request_print = subparsers.add_parser("request-print")
+    request_print.add_argument("--plan-json", required=True)
+    approvals = subparsers.add_parser("approvals")
+    approval_subparsers = approvals.add_subparsers(dest="approval_command", required=True)
+    approvals_list = approval_subparsers.add_parser("list")
+    approvals_list.add_argument("--status")
+    approvals_list.add_argument("--limit", type=int, default=20)
+    approvals_show = approval_subparsers.add_parser("show")
+    approvals_show.add_argument("request_id")
+    approvals_approve = approval_subparsers.add_parser("approve")
+    approvals_approve.add_argument("request_id")
+    approvals_approve.add_argument("--queue", action="store_true")
+    approvals_reject = approval_subparsers.add_parser("reject")
+    approvals_reject.add_argument("request_id")
     return parser
+
+
+def _handle_approvals(
+    args: argparse.Namespace,
+    output: Any,
+    *,
+    approval_service: Any,
+    client: Any,
+) -> None:
+    if args.approval_command == "list":
+        _emit(
+            output,
+            approval_service.list_print_requests(status=args.status, limit=args.limit),
+        )
+    elif args.approval_command == "show":
+        _emit(output, approval_service.get_print_request_status(args.request_id))
+    elif args.approval_command == "approve":
+        if not args.queue:
+            approved = approval_service.approve_print_request(args.request_id)
+            _emit(output, approved)
+            return
+        if client is None:
+            raise SystemExit("approvals approve --queue requires a Bambuddy client")
+        request = approval_service.get_print_request_status(args.request_id)
+        if request["status"] == "pending_user_approval":
+            approval_service.approve_print_request(args.request_id)
+        elif request["status"] != "approved":
+            raise ValueError(f"print request is not approved: {request['status']}")
+        queued = RuntimeQueueGateway(RuntimeState(), client).queue_approved_print(
+            args.request_id
+        )
+        _emit(
+            output,
+            approval_service.get_print_request_status(args.request_id)
+            | {"queue_result": queued},
+        )
+    elif args.approval_command == "reject":
+        _emit(output, approval_service.reject_print_request(args.request_id))
+    else:
+        raise SystemExit("unknown approvals command")
 
 
 def _default_client() -> Any:
@@ -203,7 +246,12 @@ def _emit(output: Any, payload: Any) -> None:
 
 def _jsonable(value: Any) -> Any:
     if isinstance(value, PrintPlan):
-        return value.to_dict()
+        payload = value.to_dict()
+        payload["plan_hash"] = value.plan_hash
+        session_id = payload.get("slicer_settings", {}).get("session_id")
+        if session_id is not None:
+            payload["session_id"] = session_id
+        return payload
     if isinstance(value, ModelSearchResult):
         return value.to_public_dict()
     if hasattr(value, "to_dict"):

@@ -4,7 +4,7 @@ Review date: 2026-06-03
 
 ## Summary
 
-No high-severity findings remain open in the current V1.1 code. The project is intentionally conservative: public search and agent-facing tools can discover models, but plan preparation for physical queueing and the only print-queue path are limited to Bambuddy archive/imported trusted items and backend-enforced confirmation.
+No high-severity findings remain open in the current V1.2 code. The project is intentionally conservative: public search and agent-facing tools can discover models and create pending print requests, but the MCP server does not expose queue/start authority. Physical queueing is limited to Bambuddy archive/imported trusted items after local out-of-band approval.
 
 ## Threat model
 
@@ -12,7 +12,7 @@ Primary assets:
 
 - Bambuddy API key
 - Printer identity, access codes, serial numbers, camera URLs
-- Print plans and confirmation tokens
+- Print plans and pending approval requests
 - Physical printer behavior and nearby people/property
 
 Primary adversaries:
@@ -25,7 +25,7 @@ Primary adversaries:
 Primary trust boundary:
 
 - Agent clients are untrusted planners.
-- Print Concierge backend code is the policy and confirmation gate.
+- Print Concierge backend code is the policy and approval gate.
 - Bambuddy is the device-control backend.
 
 ## Findings
@@ -53,9 +53,10 @@ Status: mitigated for V1.
 
 Status: mitigated for V1.
 
-- `prepare_print_plan` creates `confirmation_required` plans and does not emit confirmation tokens.
-- `request_confirmation` binds approval to job id, plan hash, user/session, file hash, printer, and material/profile.
-- `queue_confirmed_print` consumes a single-use token through backend state before calling Bambuddy.
+- `prepare_print_plan` creates plans and does not emit authorization tokens.
+- `create_print_request` stores a pending request bound to job id, plan hash, user/session, file hash, printer, and material/profile.
+- The MCP tool list omits queue/start tools; it exposes only request creation/status.
+- `print-concierge approvals approve <request_id> --queue` is the local human approval path that calls Bambuddy.
 - Runtime state initializes its directory as `0700` and SQLite database as `0600`.
 - `BambuddyClient.queue_print` refuses payloads without the internal `_print_concierge_confirmed` marker.
 - Bambuddy queue payload uses `manual_start` by default through `PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true`.
@@ -68,7 +69,7 @@ Status: mitigated for V1.1.
 - MakerWorld import verifies the resulting Bambuddy library file by fetching file metadata and requiring a file hash.
 - Printables/Thingiverse imports upload only trusted direct file URLs to Bambuddy, then fetch the resulting library metadata and require a file hash plus a sliced `gcode`/`gcode.3mf` file type before preparation.
 - STL/source geometry requires explicit Bambuddy slicer preset refs. The source upload is sliced through Bambuddy, the slice job is polled, and only the verified sliced output becomes queueable.
-- Imported library file identity is carried into the print plan as `library_file_id` and remains subject to the same confirmation-gated queue path.
+- Imported library file identity is carried into the print plan as `library_file_id` and remains subject to the same local approval-gated queue path.
 - Unsupported public providers and page-only public search results remain discovery-only until a trusted adapter provides provenance and file identity.
 
 ### 4. Raw Bambuddy access
@@ -83,8 +84,8 @@ Status: mitigated by packaging guidance.
 
 Status: mitigated with a conservative tradeoff.
 
-- Confirmation tokens are consumed before queueing so retry loops cannot double-submit after an ambiguous physical-control request.
-- If a queue call fails after token consumption, the user must request a new confirmation.
+- Approved requests are marked queued after Bambuddy returns an unambiguous queue id.
+- If a queue call fails after approval but before a queue receipt, the request remains approved and the local user can inspect/retry intentionally.
 - Bambuddy responses without a queue id/job id raise `BambuddyAmbiguousActionError`.
 
 ## Verification commands
@@ -106,6 +107,6 @@ rg -n --hidden --glob '!.git/**' --glob '!.env' --glob '!dist/**' --glob '!.venv
 - Printables/Thingiverse adapters require trusted direct file URLs; ordinary page-only search hits remain discovery-only until a search/import gateway resolves files safely.
 - STL/source-only public files require explicit slicer/profile refs and successful Bambuddy slice-job verification before they can be queueable.
 - Other public providers remain discovery-only until provenance, hash, license, and slicer/profile verification adapters are implemented.
-- The default runtime state is local SQLite. Multi-user hosted deployments should move confirmation state to a transactional service with operator observability.
+- The default runtime state is local SQLite. Multi-user hosted deployments should move approval state to a transactional service with operator observability.
 - Least-privilege Bambuddy tokens depend on Bambuddy deployment configuration.
 - Pause/cancel controls are not exposed in V1; operators should use Bambuddy directly for emergency control.

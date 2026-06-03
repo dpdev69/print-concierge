@@ -75,9 +75,9 @@ def test_skill_packages_contain_core_safety_instructions():
     combined = "\n".join(text for _, text in package_texts()).lower()
 
     required_phrases = [
-        "explicit human confirmation",
+        "explicit local human approval",
         "backend",
-        "confirmation token",
+        "no mcp queue",
         "exact print job",
         "untrusted",
         "do not expose",
@@ -107,8 +107,8 @@ def test_skill_packages_include_mcp_command_examples():
 def test_host_specific_shims_reference_canonical_skill_and_tools():
     expected = {
         "packages/claude/SKILL.md": ["../../skills/print-concierge/SKILL.md", "list_printers", "import_public_candidate"],
-        "packages/codex/print-concierge/SKILL.md": ["../../../skills/print-concierge/SKILL.md", "queue_confirmed_print"],
-        "packages/hermes/skill.yaml": ["../../skills/print-concierge/SKILL.md", "request_confirmation"],
+        "packages/codex/print-concierge/SKILL.md": ["../../../skills/print-concierge/SKILL.md", "create_print_request"],
+        "packages/hermes/skill.yaml": ["../../skills/print-concierge/SKILL.md", "get_print_request_status"],
         "packages/openclaw/print-concierge/SKILL.md": ["../../../skills/print-concierge/SKILL.md", "search_archive_or_models"],
     }
 
@@ -123,6 +123,8 @@ def test_skill_packages_do_not_advertise_unimplemented_tools():
 
     assert "pause_print" not in combined
     assert "cancel_print" not in combined
+    assert "queue_confirmed_print" not in combined
+    assert "request_confirmation" not in combined
 
 
 def test_skill_package_files_do_not_contain_secret_values():

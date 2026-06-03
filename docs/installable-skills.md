@@ -43,7 +43,7 @@ Example client configuration:
 
 Keep Bambuddy credentials in the runtime environment, with least privilege. Do not put secret values in skill files, agent memory, logs, or chat.
 
-Public model-site search is enabled by default through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other model platforms. Those public hits are discovery candidates until imported/verified. Use `get_public_import_status` before MakerWorld imports, then `import_public_candidate` for supported MakerWorld candidates. `import_public_candidate` also supports Printables/Thingiverse candidates that include a trusted direct file URL; source files must use explicit preset refs from `list_slicer_presets` through `slice_options` before they can become queueable. The queueing path still requires a Bambuddy archive/imported trusted item plus backend confirmation. For archive-only/local-only mode:
+Public model-site search is enabled by default through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other model platforms. Those public hits are discovery candidates until imported/verified. Use `get_public_import_status` before MakerWorld imports, then `import_public_candidate` for supported MakerWorld candidates. `import_public_candidate` also supports Printables/Thingiverse candidates that include a trusted direct file URL; source files must use explicit preset refs from `list_slicer_presets` through `slice_options` before they can become queueable. The queueing path still requires a Bambuddy archive/imported trusted item plus local human approval outside the MCP channel. For archive-only/local-only mode:
 
 ```sh
 export PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=false
@@ -61,4 +61,4 @@ To use a private search gateway instead, configure `PRINT_CONCIERGE_MAKERWORLD_S
 
 ## Safety Contract
 
-Every host package must preserve these rules: explicit human confirmation, backend-enforced confirmation token validation, approval bound to the exact print job, untrusted model metadata, no secret exposure, least privilege Bambuddy credentials, and no direct start.
+Every host package must preserve these rules: explicit local human approval, no MCP queue/start tool, approval bound to the exact print job, untrusted model metadata, no secret exposure, least privilege Bambuddy credentials, and no direct start.

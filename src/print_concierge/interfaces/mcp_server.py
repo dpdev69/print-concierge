@@ -6,7 +6,7 @@ from print_concierge import planner as print_planner
 from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan
 from print_concierge.public_imports import import_public_candidate as import_public_model_candidate
-from print_concierge.runtime import RuntimeConfirmationService, RuntimeQueueGateway, RuntimeState
+from print_concierge.runtime import RuntimeApprovalService, RuntimeState
 from print_concierge.search.base import ModelSearchResult
 from print_concierge.search.composite import CompositeSearchProvider
 from print_concierge.search.external import (
@@ -80,7 +80,7 @@ def prepare_print_plan(
     session_id: str,
     file_bytes: bytes | None = None,
     file_path: str | None = None,
-    confirmation_service: Any = None,
+    approval_service: Any = None,
     print_client: Any = None,
 ) -> dict[str, Any]:
     plan = print_planner.prepare_print_plan(
@@ -92,7 +92,7 @@ def prepare_print_plan(
         session_id=session_id,
         file_bytes=file_bytes,
         file_path=file_path,
-        confirmation_service=confirmation_service,
+        approval_service=approval_service,
         print_client=print_client,
     )
     return _jsonable(plan)
@@ -102,46 +102,28 @@ def show_print_plan(plan: PrintPlan | Mapping[str, Any]) -> dict[str, Any]:
     return _jsonable(plan)
 
 
-def request_confirmation(
-    plan: PrintPlan | Mapping[str, Any], *, confirmation_service: Any = None
+def create_print_request(
+    plan: PrintPlan | Mapping[str, Any], *, approval_service: Any = None
 ) -> dict[str, Any]:
     payload = _jsonable(plan)
-    plan_id = payload.get("job_id") or payload.get("plan_id")
-    session_id = str(
-        payload.get("session_id")
-        or payload.get("slicer_settings", {}).get("session_id")
-        or payload["user_id"]
-    )
     if not payload.get("plan_hash"):
-        raise ValueError("plan_hash is required to request confirmation")
+        raise ValueError("plan_hash is required to create a print request")
     if not payload.get("session_id") and not payload.get("slicer_settings", {}).get("session_id"):
-        raise ValueError("session_id is required to request confirmation")
-    service = confirmation_service or _default_confirmation_service()
-    if hasattr(service, "request_confirmation"):
-        result = service.request_confirmation(payload)
-    elif hasattr(service, "create_challenge"):
-        result = service.create_challenge(
-            user_id=str(payload["user_id"]),
-            chat_id=session_id,
-            job_id=str(plan_id),
-            file_hash=str(payload["file_hash"]),
-            printer_id=str(payload["printer"]["printer_id"]),
-            material_profile=str(payload["material_profile"]),
-            plan_hash=str(payload["plan_hash"]),
-        )
-    else:
-        raise TypeError("confirmation_service must expose request_confirmation or create_challenge")
+        raise ValueError("session_id is required to create a print request")
+    service = approval_service or _default_approval_service()
+    if not hasattr(service, "create_print_request"):
+        raise TypeError("approval_service must expose create_print_request")
+    result = service.create_print_request(payload)
     return _jsonable(result)
 
 
-def queue_confirmed_print(confirmation_token: str, *, client: Any = None) -> dict[str, Any]:
-    gateway = client or _default_queue_gateway()
-    if hasattr(gateway, "queue_confirmed_print"):
-        result = dict(gateway.queue_confirmed_print(confirmation_token))
-        if not result.get("job_id"):
-            raise ValueError("queue_confirmed_print response must include job_id")
-        return result
-    raise TypeError("queue_confirmed_print requires a confirmation-aware queue gateway")
+def get_print_request_status(
+    request_id: str, *, approval_service: Any = None
+) -> dict[str, Any]:
+    service = approval_service or _default_approval_service()
+    if not hasattr(service, "get_print_request_status"):
+        raise TypeError("approval_service must expose get_print_request_status")
+    return _jsonable(service.get_print_request_status(request_id))
 
 
 def get_job_status(job_id: str, *, client: Any = None) -> dict[str, Any]:
@@ -217,16 +199,16 @@ def main() -> None:
     def show_print_plan(plan: dict[str, Any]) -> dict[str, Any]:
         return globals()["show_print_plan"](plan)
 
-    def request_confirmation(plan: dict[str, Any]) -> dict[str, Any]:
-        return globals()["request_confirmation"](
+    def create_print_request(plan: dict[str, Any]) -> dict[str, Any]:
+        return globals()["create_print_request"](
             plan,
-            confirmation_service=_default_confirmation_service(),
+            approval_service=_default_approval_service(),
         )
 
-    def queue_confirmed_print(confirmation_token: str) -> dict[str, Any]:
-        return globals()["queue_confirmed_print"](
-            confirmation_token,
-            client=_default_queue_gateway(),
+    def get_print_request_status(request_id: str) -> dict[str, Any]:
+        return globals()["get_print_request_status"](
+            request_id,
+            approval_service=_default_approval_service(),
         )
 
     def get_job_status(job_id: str) -> dict[str, Any]:
@@ -241,8 +223,8 @@ def main() -> None:
         get_public_import_status,
         prepare_print_plan,
         show_print_plan,
-        request_confirmation,
-        queue_confirmed_print,
+        create_print_request,
+        get_print_request_status,
         get_job_status,
     ):
         server.tool()(tool)
@@ -292,12 +274,8 @@ def _search_provider(provider: Any, query: str, *, limit: int | None) -> list[An
     return list(results)[:limit]
 
 
-def _default_confirmation_service() -> Any:
-    return RuntimeConfirmationService(_default_runtime_state())
-
-
-def _default_queue_gateway() -> Any:
-    return RuntimeQueueGateway(_default_runtime_state(), _default_bambuddy_client())
+def _default_approval_service() -> Any:
+    return RuntimeApprovalService(_default_runtime_state())
 
 
 def _default_runtime_state() -> RuntimeState:

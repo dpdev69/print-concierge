@@ -17,12 +17,12 @@ tools:
   - list_printers
   - get_printer_status
   - prepare_print_plan
-  - request_confirmation
-  - queue_confirmed_print
+  - create_print_request
+  - get_print_request_status
   - get_job_status
 safety:
-  explicit_human_confirmation: required
-  confirmation: backend_enforced_token_validation
+  local_human_approval: required
+  mcp_queue_tool: forbidden
   exact_print_job_binding: required
   untrusted_model_metadata: true
   do_not_expose: Bambuddy credentials, tokens, serial numbers, access codes, camera URLs

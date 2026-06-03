@@ -2,7 +2,7 @@
 
 Print Concierge is a safety-first workflow layer for agent-assisted 3D printing with Bambuddy and Bambu Lab printers.
 
-It gives Claude, Codex, Hermes, OpenClaw, and other MCP-capable clients a narrow set of tools to search for models, import and verify printable files, prepare print plans, request human approval, queue confirmed jobs, and report status. It does not expose raw printer control to the agent.
+It gives Claude, Codex, Hermes, OpenClaw, and other MCP-capable clients a narrow set of tools to search for models, import and verify printable files, prepare print plans, create pending human approval requests, and report status. The MCP server does not expose queue or start-print authority to the agent.
 
 ## Overview
 
@@ -16,8 +16,8 @@ The agent can help with discovery and planning, but Print Concierge enforces the
 
 - only trusted Bambuddy archive/library files can be prepared for queueing;
 - public model results must be imported and verified first;
-- every print plan requires explicit human confirmation;
-- confirmation tokens are short-lived, single-use, and bound to the exact job;
+- every print plan becomes a pending request before queueing;
+- human approval happens out of band through the local CLI or future local UI;
 - queueing defaults to Bambuddy manual-start behavior.
 
 This keeps the assistant useful without giving it direct, unchecked control over a physical machine.
@@ -32,7 +32,7 @@ This keeps the assistant useful without giving it direct, unchecked control over
 - File hash and sliced-file verification before planning
 - Curated MCP server for agent clients
 - CLI for setup, smoke tests, and local use
-- Backend confirmation gateway before queueing
+- Out-of-band local approval gateway before queueing
 - Local SQLite runtime state
 - Installable skill packages for Claude, Codex, Hermes, and OpenClaw
 
@@ -49,7 +49,7 @@ The Bambuddy API key should use the least privileges needed for:
 - public import/library upload
 - source-file slicing, if you want STL/source imports
 - printer status
-- confirmed queueing
+- locally approved queueing
 
 ## Installation
 
@@ -103,7 +103,7 @@ uv run print-concierge import-status
 uv run print-concierge slicer-presets
 ```
 
-Prepare a confirmation-required plan from a trusted Bambuddy archive item:
+Prepare a plan from a trusted Bambuddy archive item:
 
 ```sh
 uv run print-concierge prepare \
@@ -113,7 +113,18 @@ uv run print-concierge prepare \
   --profile 0.2mm
 ```
 
-`prepare` does not queue a print. It only creates a plan that must go through confirmation.
+`prepare` does not queue a print. It only creates a plan.
+
+Create a pending approval request from the plan JSON, then approve it locally:
+
+```sh
+PLAN_JSON="$(uv run print-concierge prepare --archive-id 8 --printer-id 1 --material PLA --profile 0.2mm)"
+REQUEST_JSON="$(uv run print-concierge request-print --plan-json "$PLAN_JSON")"
+REQUEST_ID="$(python -c 'import json,sys; print(json.load(sys.stdin)["request_id"])' <<< "$REQUEST_JSON")"
+
+uv run print-concierge approvals show "$REQUEST_ID"
+uv run print-concierge approvals approve "$REQUEST_ID" --queue
+```
 
 ## MCP Server
 
@@ -155,10 +166,10 @@ A typical agent flow should use the tools in this order:
 3. If the candidate is public, call `import_public_candidate(...)` first.
 4. `list_printers()` and `get_printer_status(printer_id)`
 5. `prepare_print_plan(...)`
-6. `request_confirmation(plan)`
-7. User reviews the exact plan and token.
-8. `queue_confirmed_print(confirmation_token)`
-9. `get_job_status(job_id)`
+6. `create_print_request(plan)`
+7. The agent waits or polls with `get_print_request_status(request_id)`.
+8. The human reviews and approves locally with `print-concierge approvals approve <request_id> --queue`.
+9. `get_job_status(job_id)` after the request reports a queued job.
 
 Do not load broad Bambuddy MCP tools into the same production agent profile. The safety value of Print Concierge comes from keeping all agent actions inside the curated workflow.
 
@@ -186,10 +197,10 @@ The queueing path requires:
 - printer, material, and profile details;
 - a deterministic plan hash;
 - a user/session binding;
-- a short-lived confirmation token;
-- a confirmed queue request through the runtime gateway.
+- a pending print request;
+- out-of-band human approval through the local admin channel.
 
-The agent never receives a direct print-start tool. Emergency pause and cancel controls remain in Bambuddy for this version.
+The agent never receives a direct queue or print-start tool. Emergency pause and cancel controls remain in Bambuddy for this version.
 
 ## Configuration Reference
 

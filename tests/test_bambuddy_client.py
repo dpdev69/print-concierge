@@ -330,10 +330,10 @@ def test_get_job_status_reads_queue_item(monkeypatch):
     assert paths == ["/api/v1/queue/42"]
 
 
-def test_queue_print_requires_internal_confirmation_marker(monkeypatch):
+def test_queue_print_requires_internal_approval_marker(monkeypatch):
     client = _client(lambda request: httpx.Response(202, json={"job_id": "job-1"}), monkeypatch)
 
-    with pytest.raises(BambuddyError, match="confirmed"):
+    with pytest.raises(BambuddyError, match="approved"):
         client.queue_print({"archive_id": "a1"})
 
 

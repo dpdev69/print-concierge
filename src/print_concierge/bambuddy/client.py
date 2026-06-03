@@ -159,7 +159,7 @@ class BambuddyClient:
 
     def queue_print(self, plan: dict[str, Any]) -> Any:
         if plan.get("_print_concierge_confirmed") is not True:
-            raise BambuddyError("queue_print requires a confirmed Print Concierge gateway payload.")
+            raise BambuddyError("queue_print requires an approved Print Concierge gateway payload.")
         result = self._request("POST", "/api/v1/queue/", json=self._queue_payload(plan))
         if not isinstance(result, dict):
             raise BambuddyAmbiguousActionError(
@@ -288,11 +288,11 @@ class BambuddyClient:
         library_file_id = metadata.get("library_file_id") or plan.get("library_file_id")
         if archive_id is None and library_file_id is None:
             raise BambuddyError(
-                "confirmed queue payload requires a Bambuddy archive_id or library_file_id"
+                "approved queue payload requires a Bambuddy archive_id or library_file_id"
             )
         printer_id = plan.get("printer", {}).get("printer_id") or plan.get("printer_id")
         if printer_id is None:
-            raise BambuddyError("confirmed queue payload requires a printer_id")
+            raise BambuddyError("approved queue payload requires a printer_id")
         material = str(plan.get("material_profile", "")).split("/", 1)[0].strip()
         payload = {
             "bed_levelling": True,

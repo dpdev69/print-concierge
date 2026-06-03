@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import secrets
 import sqlite3
 from dataclasses import is_dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
+
+from print_concierge.models import (
+    ModelSearchResult as PlanModelSearchResult,
+    PrintPlan,
+    PrinterInfo,
+    RiskFlag,
+)
 
 
 def _utc_now() -> datetime:
@@ -22,10 +27,6 @@ def _iso(value: datetime) -> str:
 
 def _parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _jsonable(value: Any) -> Any:
@@ -63,13 +64,17 @@ class RuntimeState:
             )
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS confirmation_challenges (
-                    token_hash TEXT PRIMARY KEY,
-                    challenge_id TEXT NOT NULL,
+                CREATE TABLE IF NOT EXISTS print_requests (
+                    request_id TEXT PRIMARY KEY,
                     plan_hash TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
                     expires_at TEXT NOT NULL,
-                    used_at TEXT,
+                    approved_at TEXT,
+                    rejected_at TEXT,
+                    queued_at TEXT,
+                    queue_job_id TEXT,
+                    queue_result_json TEXT,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(plan_hash) REFERENCES print_plans(plan_hash)
                 )
@@ -122,15 +127,16 @@ class RuntimeState:
             raise LookupError("print plan was not found")
         return dict(json.loads(row[0]))
 
-    def create_challenge(
-        self, plan: Mapping[str, Any], *, ttl: timedelta = timedelta(minutes=5)
+    def create_print_request(
+        self, plan: Mapping[str, Any], *, ttl: timedelta = timedelta(minutes=30)
     ) -> dict[str, Any]:
         payload = dict(plan)
+        self._validate_plan_hash(payload)
         self.save_plan(payload)
-        token = f"pc_{secrets.token_urlsafe(12)}"
         now = _utc_now()
-        challenge = {
-            "challenge_id": uuid4().hex,
+        request = {
+            "request_id": f"req_{uuid4().hex}",
+            "status": "pending_user_approval",
             "job_id": str(payload["job_id"]),
             "plan_hash": str(payload["plan_hash"]),
             "user_id": str(payload["user_id"]),
@@ -142,6 +148,7 @@ class RuntimeState:
             "file_hash": str(payload["file_hash"]),
             "printer_id": str(payload["printer"]["printer_id"]),
             "material_profile": str(payload["material_profile"]),
+            "summary": self._request_summary(payload),
             "expires_at": _iso(now + ttl),
             "created_at": _iso(now),
         }
@@ -149,49 +156,90 @@ class RuntimeState:
         with sqlite3.connect(self.path) as connection:
             connection.execute(
                 """
-                INSERT INTO confirmation_challenges
-                    (token_hash, challenge_id, plan_hash, payload_json, expires_at, used_at, created_at)
-                VALUES (?, ?, ?, ?, ?, NULL, ?)
+                INSERT INTO print_requests
+                    (
+                        request_id,
+                        plan_hash,
+                        payload_json,
+                        status,
+                        expires_at,
+                        approved_at,
+                        rejected_at,
+                        queued_at,
+                        queue_job_id,
+                        queue_result_json,
+                        created_at
+                    )
+                VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?)
                 """,
                 (
-                    _hash_token(token),
-                    challenge["challenge_id"],
-                    challenge["plan_hash"],
-                    json.dumps(challenge, ensure_ascii=False, sort_keys=True),
-                    challenge["expires_at"],
-                    challenge["created_at"],
+                    request["request_id"],
+                    request["plan_hash"],
+                    json.dumps(request, ensure_ascii=False, sort_keys=True),
+                    request["status"],
+                    request["expires_at"],
+                    request["created_at"],
                 ),
             )
             connection.commit()
-        return {**challenge, "token": token}
+        return dict(request)
 
-    def consume_challenge(self, token: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        token_hash = _hash_token(token)
+    def get_print_request(self, request_id: str) -> dict[str, Any]:
+        request = self._get_print_request_raw(request_id)
+        if (
+            request["status"] == "pending_user_approval"
+            and _utc_now() > _parse_iso(str(request["expires_at"]))
+        ):
+            request = self._set_request_status(request_id, "expired")
+        return request
+
+    def list_print_requests(
+        self, *, status: str | None = None, limit: int = 20
+    ) -> list[dict[str, Any]]:
         self.initialize()
+        query = """
+            SELECT
+                payload_json,
+                status,
+                approved_at,
+                rejected_at,
+                queued_at,
+                queue_job_id,
+                queue_result_json,
+                expires_at
+            FROM print_requests
+        """
+        params: list[Any] = []
+        if status:
+            query += " WHERE status = ?"
+            params.append(status)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
         with sqlite3.connect(self.path) as connection:
-            row = connection.execute(
-                """
-                SELECT payload_json, expires_at, used_at
-                FROM confirmation_challenges
-                WHERE token_hash = ?
-                """,
-                (token_hash,),
-            ).fetchone()
-            if row is None:
-                raise ValueError("confirmation token not found")
-            challenge = dict(json.loads(row[0]))
-            if row[2] is not None:
-                raise ValueError("confirmation token already used")
-            if _utc_now() > _parse_iso(str(row[1])):
-                raise ValueError("confirmation token expired")
-            plan = self.get_plan(str(challenge["plan_hash"]))
-            self._validate_challenge_binding(challenge, plan)
-            connection.execute(
-                "UPDATE confirmation_challenges SET used_at = ? WHERE token_hash = ?",
-                (_iso(_utc_now()), token_hash),
-            )
-            connection.commit()
-        return challenge, plan
+            rows = connection.execute(query, params).fetchall()
+        return [self.get_print_request(self._request_from_row(row)["request_id"]) for row in rows]
+
+    def approve_print_request(self, request_id: str) -> dict[str, Any]:
+        request = self.get_print_request(request_id)
+        if request["status"] != "pending_user_approval":
+            raise ValueError(f"print request is not pending: {request['status']}")
+        return self._set_request_status(request_id, "approved", approved_at=_iso(_utc_now()))
+
+    def reject_print_request(self, request_id: str) -> dict[str, Any]:
+        request = self.get_print_request(request_id)
+        if request["status"] != "pending_user_approval":
+            raise ValueError(f"print request is not pending: {request['status']}")
+        return self._set_request_status(request_id, "rejected", rejected_at=_iso(_utc_now()))
+
+    def load_approved_request_plan(self, request_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        request = self.get_print_request(request_id)
+        if request["status"] == "queued":
+            raise ValueError("print request already used")
+        if request["status"] != "approved":
+            raise ValueError(f"print request is not approved: {request['status']}")
+        plan = self.get_plan(str(request["plan_hash"]))
+        self._validate_request_binding(request, plan)
+        return request, plan
 
     def save_queue_result(
         self,
@@ -219,9 +267,58 @@ class RuntimeState:
             )
             connection.commit()
 
+    def mark_request_queued(
+        self,
+        *,
+        request_id: str,
+        plan_hash: str,
+        job_id: str,
+        queue_payload: Mapping[str, Any],
+        queue_result: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        now = _iso(_utc_now())
+        self.save_queue_result(
+            plan_hash=plan_hash,
+            job_id=job_id,
+            queue_payload=queue_payload,
+            queue_result=queue_result,
+        )
+        request = self.get_print_request(request_id)
+        updated = {
+            **request,
+            "status": "queued",
+            "queued_at": now,
+            "queue_job_id": job_id,
+            "queue_result": dict(queue_result),
+        }
+        self.initialize()
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                """
+                UPDATE print_requests
+                SET
+                    status = ?,
+                    payload_json = ?,
+                    queued_at = ?,
+                    queue_job_id = ?,
+                    queue_result_json = ?
+                WHERE request_id = ?
+                """,
+                (
+                    "queued",
+                    json.dumps(updated, ensure_ascii=False, sort_keys=True),
+                    now,
+                    job_id,
+                    json.dumps(dict(queue_result), ensure_ascii=False, sort_keys=True),
+                    request_id,
+                ),
+            )
+            connection.commit()
+        return updated
+
     @staticmethod
-    def _validate_challenge_binding(
-        challenge: Mapping[str, Any], plan: Mapping[str, Any]
+    def _validate_request_binding(
+        request: Mapping[str, Any], plan: Mapping[str, Any]
     ) -> None:
         expected = {
             "job_id": str(plan["job_id"]),
@@ -236,24 +333,164 @@ class RuntimeState:
             "printer_id": str(plan["printer"]["printer_id"]),
             "material_profile": str(plan["material_profile"]),
         }
-        actual = {key: str(challenge[key]) for key in expected}
+        actual = {key: str(request[key]) for key in expected}
         if actual != expected:
-            raise ValueError("confirmation token binding mismatch")
+            raise ValueError("print request binding mismatch")
+
+    @staticmethod
+    def _request_summary(plan: Mapping[str, Any]) -> dict[str, Any]:
+        model = dict(plan.get("model") or {})
+        printer = dict(plan.get("printer") or {})
+        return {
+            "title": str(model.get("title") or plan.get("job_id")),
+            "file_name": model.get("file_name"),
+            "file_hash": str(plan.get("file_hash", "")),
+            "printer_id": str(printer.get("printer_id", "")),
+            "printer": printer.get("display_name") or printer.get("printer_id"),
+            "material_profile": str(plan.get("material_profile", "")),
+            "source": model.get("source"),
+        }
+
+    @classmethod
+    def _validate_plan_hash(cls, plan: Mapping[str, Any]) -> None:
+        expected = str(plan.get("plan_hash") or "")
+        if not expected:
+            raise ValueError("plan_hash is required")
+        actual = cls._compute_plan_hash(plan)
+        if actual != expected:
+            raise ValueError("plan_hash does not match immutable plan payload")
+
+    @staticmethod
+    def _compute_plan_hash(plan: Mapping[str, Any]) -> str:
+        printer = dict(plan.get("printer") or {})
+        model = dict(plan.get("model") or {})
+        risk_flags = [
+            item if isinstance(item, RiskFlag) else RiskFlag(**dict(item))
+            for item in plan.get("risk_flags", [])
+        ]
+        print_plan = PrintPlan(
+            job_id=str(plan["job_id"]),
+            user_id=str(plan["user_id"]),
+            file_hash=str(plan["file_hash"]),
+            printer=PrinterInfo(**printer),
+            model=PlanModelSearchResult(**model),
+            material_profile=str(plan["material_profile"]),
+            schema_version=int(plan.get("schema_version", 1)),
+            risk_flags=risk_flags,
+            slicer_settings=dict(plan.get("slicer_settings") or {}),
+            estimated_grams=plan.get("estimated_grams"),
+            estimated_minutes=plan.get("estimated_minutes"),
+            created_at=str(plan.get("created_at")) if plan.get("created_at") else _iso(_utc_now()),
+            transient_metadata=dict(plan.get("transient_metadata") or {}),
+            status=plan.get("status", "confirmation_required"),
+        )
+        return print_plan.plan_hash
+
+    @staticmethod
+    def _request_from_row(row: Any) -> dict[str, Any]:
+        request = dict(json.loads(row[0]))
+        request["status"] = str(row[1])
+        if row[2]:
+            request["approved_at"] = str(row[2])
+        if row[3]:
+            request["rejected_at"] = str(row[3])
+        if row[4]:
+            request["queued_at"] = str(row[4])
+        if row[5]:
+            request["queue_job_id"] = str(row[5])
+        if row[6]:
+            request["queue_result"] = dict(json.loads(row[6]))
+        request["expires_at"] = str(row[7])
+        return request
+
+    def _set_request_status(
+        self,
+        request_id: str,
+        status: str,
+        *,
+        approved_at: str | None = None,
+        rejected_at: str | None = None,
+    ) -> dict[str, Any]:
+        request = self._get_print_request_raw(request_id)
+        updated = {**request, "status": status}
+        if approved_at:
+            updated["approved_at"] = approved_at
+        if rejected_at:
+            updated["rejected_at"] = rejected_at
+        self.initialize()
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                """
+                UPDATE print_requests
+                SET
+                    status = ?,
+                    payload_json = ?,
+                    approved_at = COALESCE(?, approved_at),
+                    rejected_at = COALESCE(?, rejected_at)
+                WHERE request_id = ?
+                """,
+                (
+                    status,
+                    json.dumps(updated, ensure_ascii=False, sort_keys=True),
+                    approved_at,
+                    rejected_at,
+                    request_id,
+                ),
+            )
+            connection.commit()
+        return updated
+
+    def _get_print_request_raw(self, request_id: str) -> dict[str, Any]:
+        self.initialize()
+        with sqlite3.connect(self.path) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    payload_json,
+                    status,
+                    approved_at,
+                    rejected_at,
+                    queued_at,
+                    queue_job_id,
+                    queue_result_json,
+                    expires_at
+                FROM print_requests
+                WHERE request_id = ?
+                """,
+                (request_id,),
+            ).fetchone()
+        if row is None:
+            raise LookupError("print request was not found")
+        return self._request_from_row(row)
 
 
-class RuntimeConfirmationService:
+class RuntimeApprovalService:
     def __init__(
         self,
         state: RuntimeState | None = None,
         *,
-        ttl: timedelta = timedelta(minutes=5),
+        ttl: timedelta = timedelta(minutes=30),
     ) -> None:
         self.state = state or RuntimeState()
         self.ttl = ttl
 
-    def request_confirmation(self, plan: Mapping[str, Any]) -> dict[str, Any]:
+    def create_print_request(self, plan: Mapping[str, Any]) -> dict[str, Any]:
         payload = _jsonable(plan)
-        return self.state.create_challenge(payload, ttl=self.ttl)
+        return self.state.create_print_request(payload, ttl=self.ttl)
+
+    def get_print_request_status(self, request_id: str) -> dict[str, Any]:
+        return self.state.get_print_request(request_id)
+
+    def list_print_requests(
+        self, *, status: str | None = None, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return self.state.list_print_requests(status=status, limit=limit)
+
+    def approve_print_request(self, request_id: str) -> dict[str, Any]:
+        return self.state.approve_print_request(request_id)
+
+    def reject_print_request(self, request_id: str) -> dict[str, Any]:
+        return self.state.reject_print_request(request_id)
 
 
 class RuntimeQueueGateway:
@@ -261,21 +498,23 @@ class RuntimeQueueGateway:
         self.state = state or RuntimeState()
         self.client = client
 
-    def queue_confirmed_print(self, confirmation_token: str) -> dict[str, Any]:
+    def queue_approved_print(self, request_id: str) -> dict[str, Any]:
         if self.client is None or not hasattr(self.client, "queue_print"):
             raise TypeError("Bambuddy queue client is not configured")
-        challenge, plan = self.state.consume_challenge(confirmation_token)
+        request, plan = self.state.load_approved_request_plan(request_id)
         queue_payload = {
             **plan,
             "_print_concierge_confirmed": True,
-            "confirmation": {
-                "challenge_id": challenge["challenge_id"],
-                "plan_hash": challenge["plan_hash"],
+            "approval": {
+                "request_id": request["request_id"],
+                "plan_hash": request["plan_hash"],
+                "approved_at": request.get("approved_at"),
             },
         }
         result = dict(self.client.queue_print(queue_payload))
         job_id = str(result["job_id"])
-        self.state.save_queue_result(
+        self.state.mark_request_queued(
+            request_id=str(request["request_id"]),
             plan_hash=str(plan["plan_hash"]),
             job_id=job_id,
             queue_payload=queue_payload,
