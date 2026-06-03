@@ -241,6 +241,46 @@ class RuntimeState:
         self._validate_request_binding(request, plan)
         return request, plan
 
+    def claim_request_for_queue(self, request_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        request = self.get_print_request(request_id)
+        self._raise_if_not_queueable(request["status"])
+        plan = self.get_plan(str(request["plan_hash"]))
+        self._validate_request_binding(request, plan)
+
+        now = _iso(_utc_now())
+        updated = {
+            **request,
+            "status": "queueing",
+            "queueing_at": now,
+            "approved_at": request.get("approved_at") or now,
+        }
+        self.initialize()
+        with sqlite3.connect(self.path) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE print_requests
+                SET
+                    status = ?,
+                    payload_json = ?,
+                    approved_at = COALESCE(approved_at, ?)
+                WHERE request_id = ? AND status = ?
+                """,
+                (
+                    "queueing",
+                    json.dumps(updated, ensure_ascii=False, sort_keys=True),
+                    updated["approved_at"],
+                    request_id,
+                    request["status"],
+                ),
+            )
+            connection.commit()
+
+        if cursor.rowcount != 1:
+            latest = self.get_print_request(request_id)
+            self._raise_if_not_queueable(latest["status"])
+            raise ValueError("print request could not be claimed for queue")
+        return updated, plan
+
     def save_queue_result(
         self,
         *,
@@ -316,6 +356,38 @@ class RuntimeState:
             connection.commit()
         return updated
 
+    def mark_request_failed(self, *, request_id: str, error: str) -> dict[str, Any]:
+        now = _iso(_utc_now())
+        request = self.get_print_request(request_id)
+        message = str(error)[:500]
+        updated = {
+            **request,
+            "status": "failed",
+            "failed_at": now,
+            "queue_error": message,
+        }
+        self.initialize()
+        with sqlite3.connect(self.path) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE print_requests
+                SET
+                    status = ?,
+                    payload_json = ?
+                WHERE request_id = ? AND status = ?
+                """,
+                (
+                    "failed",
+                    json.dumps(updated, ensure_ascii=False, sort_keys=True),
+                    request_id,
+                    "queueing",
+                ),
+            )
+            connection.commit()
+        if cursor.rowcount != 1:
+            return self.get_print_request(request_id)
+        return updated
+
     @staticmethod
     def _validate_request_binding(
         request: Mapping[str, Any], plan: Mapping[str, Any]
@@ -336,6 +408,15 @@ class RuntimeState:
         actual = {key: str(request[key]) for key in expected}
         if actual != expected:
             raise ValueError("print request binding mismatch")
+
+    @staticmethod
+    def _raise_if_not_queueable(status: str) -> None:
+        if status == "queued":
+            raise ValueError("print request already used")
+        if status == "queueing":
+            raise ValueError("print request already queueing")
+        if status not in {"pending_user_approval", "approved"}:
+            raise ValueError(f"print request cannot be queued: {status}")
 
     @staticmethod
     def _request_summary(plan: Mapping[str, Any]) -> dict[str, Any]:
@@ -499,9 +580,12 @@ class RuntimeQueueGateway:
         self.client = client
 
     def queue_approved_print(self, request_id: str) -> dict[str, Any]:
+        return self.queue_print_request(request_id)
+
+    def queue_print_request(self, request_id: str) -> dict[str, Any]:
         if self.client is None or not hasattr(self.client, "queue_print"):
             raise TypeError("Bambuddy queue client is not configured")
-        request, plan = self.state.load_approved_request_plan(request_id)
+        request, plan = self.state.claim_request_for_queue(request_id)
         queue_payload = {
             **plan,
             "_print_concierge_confirmed": True,
@@ -511,7 +595,16 @@ class RuntimeQueueGateway:
                 "approved_at": request.get("approved_at"),
             },
         }
-        result = dict(self.client.queue_print(queue_payload))
+        try:
+            result = dict(self.client.queue_print(queue_payload))
+            if not result.get("job_id"):
+                raise ValueError("queue response must include job_id")
+        except Exception as exc:
+            self.state.mark_request_failed(
+                request_id=str(request["request_id"]),
+                error=str(exc),
+            )
+            raise
         job_id = str(result["job_id"])
         self.state.mark_request_queued(
             request_id=str(request["request_id"]),

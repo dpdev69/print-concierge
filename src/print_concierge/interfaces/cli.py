@@ -119,6 +119,13 @@ def main(
     elif args.command == "request-print":
         plan = json.loads(args.plan_json)
         _emit(out, approval_service.create_print_request(plan))
+    elif args.command == "queue-request":
+        _handle_queue_request(
+            args.request_id,
+            out,
+            approval_service=approval_service,
+            client=client,
+        )
     elif args.command == "approvals":
         _handle_approvals(args, out, approval_service=approval_service, client=client)
     else:
@@ -161,6 +168,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("import-status")
     request_print = subparsers.add_parser("request-print")
     request_print.add_argument("--plan-json", required=True)
+    queue_request = subparsers.add_parser("queue-request")
+    queue_request.add_argument("request_id")
     approvals = subparsers.add_parser("approvals")
     approval_subparsers = approvals.add_subparsers(dest="approval_command", required=True)
     approvals_list = approval_subparsers.add_parser("list")
@@ -200,20 +209,33 @@ def _handle_approvals(
         request = approval_service.get_print_request_status(args.request_id)
         if request["status"] == "pending_user_approval":
             approval_service.approve_print_request(args.request_id)
-        elif request["status"] != "approved":
-            raise ValueError(f"print request is not approved: {request['status']}")
-        queued = RuntimeQueueGateway(RuntimeState(), client).queue_approved_print(
-            args.request_id
-        )
-        _emit(
+        _handle_queue_request(
+            args.request_id,
             output,
-            approval_service.get_print_request_status(args.request_id)
-            | {"queue_result": queued},
+            approval_service=approval_service,
+            client=client,
         )
     elif args.approval_command == "reject":
         _emit(output, approval_service.reject_print_request(args.request_id))
     else:
         raise SystemExit("unknown approvals command")
+
+
+def _handle_queue_request(
+    request_id: str,
+    output: Any,
+    *,
+    approval_service: Any,
+    client: Any,
+) -> None:
+    if client is None:
+        raise SystemExit("queue-request requires a Bambuddy client")
+    state = getattr(approval_service, "state", RuntimeState())
+    queued = RuntimeQueueGateway(state, client).queue_print_request(request_id)
+    _emit(
+        output,
+        approval_service.get_print_request_status(request_id) | {"queue_result": queued},
+    )
 
 
 def _default_client() -> Any:

@@ -13,8 +13,8 @@ The LLM is never a trust boundary. Prompts are helpful instructions, not safety 
 ## Non-negotiable safety rules
 
 1. No print starts without explicit human confirmation.
-2. Human approval must happen outside the model-visible MCP channel.
-3. Approval must be enforced by backend code and bound to the exact print job.
+2. Queueing is request-bound and backend-enforced, not prompt-enforced.
+3. Confirmation must be bound to the exact print job.
 4. Model pages, model descriptions, comments, filenames, and source metadata are untrusted input.
 5. Bambuddy credentials, printer access codes, serial numbers, camera URLs, and tokens must not be exposed to chat or logs.
 6. Default deployment should be local-only or private-network-only.
@@ -35,7 +35,7 @@ Mitigations:
 - Treat all retrieved model content as untrusted data.
 - Extract structured fields only where possible.
 - Do not allow retrieved text to call tools or alter system policy.
-- Backend creates a pending print request; queueing is not exposed as an MCP tool.
+- Backend creates a pending print request; queueing requires a separate scoped `queue_print_request(request_id)` call for that stored request.
 - Include tests with malicious model descriptions.
 
 ### 2. Unauthorized printer control
@@ -102,7 +102,7 @@ Mitigations:
 
 - Use a restricted high-level safety wrapper for normal users.
 - Do not expose all Bambuddy endpoints directly to the conversational agent in production mode.
-- Dangerous operations are only available through the local `print-concierge approvals approve <request_id> --queue` command or a future equivalent local human UI.
+- Raw queue/start operations are not exposed; the only queue path is `queue_print_request(request_id)` for an existing Print Concierge request.
 - Consider direct-mode only for developers with explicit opt-in.
 
 ### 7. Public internet exposure
@@ -119,9 +119,9 @@ Mitigations:
 
 ---
 
-## Out-of-band approval design
+## Request-bound queue design
 
-A print can only be queued when a pending print request receives local human approval outside the model-visible MCP channel.
+A print can only be queued through a stored Print Concierge request. The agent receives a scoped queue action, not raw Bambuddy control.
 
 ### Pending print plan
 
@@ -147,20 +147,27 @@ A pending request should include:
 }
 ```
 
-### Approval requirements
+### Confirmation requirements
 
 - Created by backend as a pending request.
 - Contains no authorizing bearer token visible to the model.
 - Expires if not reviewed.
 - Bound to exact job fields through the immutable plan hash.
 - Invalidated if the plan changes.
-- Approved or rejected through the local CLI/admin UI, not MCP.
+- Submitted only through `queue_print_request(request_id)` or the equivalent CLI wrapper for that exact request id.
 
 ### Queue command
 
-The model-visible MCP server must not expose a queue command. The local human channel can queue an already-approved request:
+The model-visible MCP server exposes one queue command:
 
 ```text
+queue_print_request(request_id)
+```
+
+The local CLI exposes the same gateway for smoke tests and admin workflows:
+
+```text
+print-concierge queue-request <request_id>
 print-concierge approvals approve <request_id> --queue
 ```
 
@@ -169,10 +176,12 @@ It must verify:
 - request exists;
 - request not expired;
 - request not already queued;
-- request is approved through the local channel;
+- request is not already being queued by another caller;
 - request matches current immutable job plan;
 - job passes policy checks;
 - Bambuddy call succeeds and returns an unambiguous queue id.
+
+This design does not claim to protect against a malicious local client that is allowed to call `queue_print_request`. Treat that tool as printer-control authority in MCP hosts, prefer per-call user approval prompts when available, and keep broad Bambuddy tools out of the same production profile.
 
 ---
 
@@ -188,6 +197,7 @@ Recommended default tools:
 - `show_print_plan(plan)`
 - `create_print_request(plan)`
 - `get_print_request_status(request_id)`
+- `queue_print_request(request_id)`
 - `get_job_status(job_id)`
 
 Avoid exposing raw low-level API calls in the normal chat flow.
@@ -220,7 +230,7 @@ For v1:
 - local machine, LAN, or Tailscale/WireGuard only;
 - no public unauthenticated endpoint;
 - Bambuddy API key in `.env`;
-- out-of-band approval required for every print;
+- request-bound queueing required for every print;
 - no raw G-code from arbitrary sources by default;
 - direct access to broad Bambuddy MCP endpoints disabled for normal users.
 

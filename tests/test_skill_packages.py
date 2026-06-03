@@ -75,9 +75,11 @@ def test_skill_packages_contain_core_safety_instructions():
     combined = "\n".join(text for _, text in package_texts()).lower()
 
     required_phrases = [
-        "explicit local human approval",
+        "explicit user confirmation",
         "backend",
-        "no mcp queue",
+        "scoped",
+        "queue_print_request",
+        "raw queue",
         "exact print job",
         "untrusted",
         "do not expose",
@@ -106,10 +108,10 @@ def test_skill_packages_include_mcp_command_examples():
 
 def test_host_specific_shims_reference_canonical_skill_and_tools():
     expected = {
-        "packages/claude/SKILL.md": ["../../skills/print-concierge/SKILL.md", "list_printers", "import_public_candidate"],
-        "packages/codex/print-concierge/SKILL.md": ["../../../skills/print-concierge/SKILL.md", "create_print_request"],
-        "packages/hermes/skill.yaml": ["../../skills/print-concierge/SKILL.md", "get_print_request_status"],
-        "packages/openclaw/print-concierge/SKILL.md": ["../../../skills/print-concierge/SKILL.md", "search_archive_or_models"],
+        "packages/claude/SKILL.md": ["../../skills/print-concierge/SKILL.md", "list_printers", "import_public_candidate", "queue_print_request"],
+        "packages/codex/print-concierge/SKILL.md": ["../../../skills/print-concierge/SKILL.md", "create_print_request", "queue_print_request"],
+        "packages/hermes/skill.yaml": ["../../skills/print-concierge/SKILL.md", "get_print_request_status", "queue_print_request"],
+        "packages/openclaw/print-concierge/SKILL.md": ["../../../skills/print-concierge/SKILL.md", "search_archive_or_models", "queue_print_request"],
     }
 
     for path, snippets in expected.items():

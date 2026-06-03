@@ -28,6 +28,7 @@ def test_setup_docs_cover_runtime_configuration_and_safe_workflow():
         "uv run print-concierge-mcp",
         "create_print_request",
         "get_print_request_status",
+        "queue_print_request",
         "approvals approve",
         "do not load broad Bambuddy MCP",
     ]

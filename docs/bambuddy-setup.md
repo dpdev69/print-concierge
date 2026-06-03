@@ -12,6 +12,6 @@ V0/V1 scope:
 - V0b: queue only after explicit human approval.
 - V0c: one curated MCP surface.
 - V1.1: public discovery through 3DSEARCH, plus `import_public_candidate` for supported MakerWorld results and trusted direct-file Printables/Thingiverse results. Source files require Bambuddy slicer presets and verified sliced output; physical queueing still requires Bambuddy archive/imported trusted items.
-- V1.2: MCP creates pending print requests; local CLI/admin approval queues approved requests out of band.
+- V1.2: MCP creates pending print requests and queues only through scoped request ids.
 
-Direct print start remains disabled. Queueing must use local approval outside the model-visible MCP channel.
+Direct print start remains disabled. Queueing must use Print Concierge's scoped request gateway; do not expose raw Bambuddy queue/start tools in the same agent profile.

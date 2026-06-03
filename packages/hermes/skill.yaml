@@ -19,10 +19,12 @@ tools:
   - prepare_print_plan
   - create_print_request
   - get_print_request_status
+  - queue_print_request
   - get_job_status
 safety:
-  local_human_approval: required
-  mcp_queue_tool: forbidden
+  user_confirmation_before_queue: required
+  scoped_queue_request_only: true
+  raw_queue_start_tools: forbidden
   exact_print_job_binding: required
   untrusted_model_metadata: true
   do_not_expose: Bambuddy credentials, tokens, serial numbers, access codes, camera URLs

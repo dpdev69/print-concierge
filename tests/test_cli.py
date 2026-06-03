@@ -374,6 +374,51 @@ def test_cli_local_approval_flow_queues_only_after_approval(monkeypatch, tmp_pat
     assert client.payloads[0]["approval"]["request_id"] == request["request_id"]
 
 
+def test_cli_queue_request_queues_pending_request(monkeypatch, tmp_path):
+    monkeypatch.setenv("PRINT_CONCIERGE_STATE_DB", str(tmp_path / "state.sqlite3"))
+    client = FakeClient()
+    archive = FakeArchive()
+    prepared_out = io.StringIO()
+    main(
+        [
+            "prepare",
+            "--archive-id",
+            "a1",
+            "--printer-id",
+            "1",
+            "--material",
+            "PLA",
+            "--profile",
+            "0.20mm",
+        ],
+        client=client,
+        archive_provider=archive,
+        output=prepared_out,
+    )
+    plan = json.loads(prepared_out.getvalue())
+    request_out = io.StringIO()
+    main(
+        ["request-print", "--plan-json", json.dumps(plan)],
+        client=client,
+        archive_provider=archive,
+        output=request_out,
+    )
+    request_id = json.loads(request_out.getvalue())["request_id"]
+
+    queue_out = io.StringIO()
+    main(
+        ["queue-request", request_id],
+        client=client,
+        archive_provider=archive,
+        output=queue_out,
+    )
+
+    queued = json.loads(queue_out.getvalue())
+    assert queued["status"] == "queued"
+    assert queued["queue_result"]["job_id"] == "42"
+    assert client.payloads[0]["approval"]["request_id"] == request_id
+
+
 def test_cli_can_queue_previously_approved_request(monkeypatch, tmp_path):
     monkeypatch.setenv("PRINT_CONCIERGE_STATE_DB", str(tmp_path / "state.sqlite3"))
     client = FakeClient()

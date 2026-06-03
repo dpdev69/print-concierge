@@ -16,6 +16,6 @@ Expected flow:
 3. Supported MakerWorld candidates and trusted direct-file Printables/Thingiverse candidates are imported/verified with `import_public_candidate`; source files use explicit preset refs from `list_slicer_presets`, while page-only public candidates pause before preparation.
 4. Prepare an immutable print plan for the trusted item.
 5. Create a pending print request through `create_print_request`.
-6. Queue only from the local human approval channel, for example `print-concierge approvals approve <request_id> --queue`.
+6. After explicit user confirmation, queue that exact request through `queue_print_request(request_id)`.
 
-V0/V1 excludes direct starts, MCP queue tools, and unrestricted Bambuddy control.
+V0/V1 excludes direct starts, raw queue/start tools, and unrestricted Bambuddy control.

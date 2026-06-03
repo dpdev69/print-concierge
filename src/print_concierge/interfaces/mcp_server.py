@@ -6,7 +6,7 @@ from print_concierge import planner as print_planner
 from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan
 from print_concierge.public_imports import import_public_candidate as import_public_model_candidate
-from print_concierge.runtime import RuntimeApprovalService, RuntimeState
+from print_concierge.runtime import RuntimeApprovalService, RuntimeQueueGateway, RuntimeState
 from print_concierge.search.base import ModelSearchResult
 from print_concierge.search.composite import CompositeSearchProvider
 from print_concierge.search.external import (
@@ -126,6 +126,18 @@ def get_print_request_status(
     return _jsonable(service.get_print_request_status(request_id))
 
 
+def queue_print_request(
+    request_id: str, *, queue_gateway: Any = None
+) -> dict[str, Any]:
+    gateway = queue_gateway or _default_queue_gateway()
+    if not hasattr(gateway, "queue_print_request"):
+        raise TypeError("queue_gateway must expose queue_print_request")
+    result = _jsonable(gateway.queue_print_request(request_id))
+    if not isinstance(result, Mapping) or not result.get("job_id"):
+        raise ValueError("queue_print_request response must include job_id")
+    return dict(result)
+
+
 def get_job_status(job_id: str, *, client: Any = None) -> dict[str, Any]:
     if client and hasattr(client, "get_job_status"):
         return dict(client.get_job_status(job_id))
@@ -211,6 +223,12 @@ def main() -> None:
             approval_service=_default_approval_service(),
         )
 
+    def queue_print_request(request_id: str) -> dict[str, Any]:
+        return globals()["queue_print_request"](
+            request_id,
+            queue_gateway=_default_queue_gateway(),
+        )
+
     def get_job_status(job_id: str) -> dict[str, Any]:
         return globals()["get_job_status"](job_id, client=_default_bambuddy_client())
 
@@ -225,6 +243,7 @@ def main() -> None:
         show_print_plan,
         create_print_request,
         get_print_request_status,
+        queue_print_request,
         get_job_status,
     ):
         server.tool()(tool)
@@ -276,6 +295,10 @@ def _search_provider(provider: Any, query: str, *, limit: int | None) -> list[An
 
 def _default_approval_service() -> Any:
     return RuntimeApprovalService(_default_runtime_state())
+
+
+def _default_queue_gateway() -> Any:
+    return RuntimeQueueGateway(_default_runtime_state(), _default_bambuddy_client())
 
 
 def _default_runtime_state() -> RuntimeState:

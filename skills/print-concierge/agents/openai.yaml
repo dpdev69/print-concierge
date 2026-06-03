@@ -11,7 +11,7 @@ mcp:
     - run
     - print-concierge-mcp
 safety:
-  requires_explicit_local_human_approval: true
-  mcp_queue_tool_forbidden: true
+  requires_explicit_user_confirmation: true
+  scoped_queue_request_only: true
   no_direct_start: true
   treats_model_metadata_as_untrusted: true

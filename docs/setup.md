@@ -34,9 +34,9 @@ PRINT_CONCIERGE_PUBLIC_IMPORT_SLICE_WAIT_SECONDS=300
 
 The runtime creates the state directory with `0700` permissions and the SQLite database with `0600` permissions.
 
-`PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true` keeps queued prints in a manual-start posture. This preserves the product boundary: the agent can discover public models and create pending requests, but physical queueing is limited to Bambuddy archive/imported trusted items after local human approval.
+`PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true` keeps queued prints in a manual-start posture. This preserves the product boundary: the agent can discover public models and queue a specific prepared request, but physical start remains separate from chat.
 
-Public web search is on by default, so the agent can discover candidates from indexed public model sites such as MakerWorld, Printables, and Thingiverse through 3DSEARCH. Queueing is intentionally narrower: a print must resolve to a Bambuddy archive/imported trusted item and be approved outside the MCP agent channel before it can be sent to Bambuddy. `import_public_candidate` can import/verify supported MakerWorld candidates through Bambuddy, and Printables/Thingiverse candidates when the selected result includes a trusted direct file URL. Source files such as STL require explicit `slice_options` chosen from Bambuddy slicer presets before they can become queueable. Set `PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=false` only when you intentionally want the agent to search Bambuddy/local archives and no public web sources.
+Public web search is on by default, so the agent can discover candidates from indexed public model sites such as MakerWorld, Printables, and Thingiverse through 3DSEARCH. Queueing is intentionally narrower: a print must resolve to a Bambuddy archive/imported trusted item, become an immutable Print Concierge request, and be submitted through `queue_print_request(request_id)` before it can be sent to Bambuddy. `import_public_candidate` can import/verify supported MakerWorld candidates through Bambuddy, and Printables/Thingiverse candidates when the selected result includes a trusted direct file URL. Source files such as STL require explicit `slice_options` chosen from Bambuddy slicer presets before they can become queueable. Set `PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=false` only when you intentionally want the agent to search Bambuddy/local archives and no public web sources.
 
 MakerWorld import depends on Bambuddy's MakerWorld integration and Bambu Cloud download credentials. If `get_public_import_status` or `print-concierge import-status` reports `can_download=false`, public MakerWorld results will remain discovery-only until Bambuddy is configured for downloads.
 Printables/Thingiverse imports do not use Bambu Cloud, but they require a direct HTTPS file URL from the provider domain. Already-sliced results are verified as `gcode`/`gcode.3mf`; source files are uploaded, sliced through Bambuddy with explicit preset refs, polled, and then verified as sliced output. Page-only results from public search remain discovery-only until a search/import gateway supplies the trusted file URL.
@@ -59,10 +59,11 @@ uv run print-concierge prepare --archive-id 8 --printer-id 1 --material PLA --pr
 uv run print-concierge request-print --plan-json '<prepared plan JSON>'
 uv run print-concierge approvals list
 uv run print-concierge approvals show '<request_id>'
+uv run print-concierge queue-request '<request_id>'
 uv run print-concierge approvals approve '<request_id>' --queue
 ```
 
-`prepare` only creates a plan. `request-print` creates a pending approval request. Queueing is only available from the local `approvals approve --queue` command, not from MCP.
+`prepare` only creates a plan. `request-print` creates a pending request. `queue-request` uses the same scoped queue gateway exposed to MCP as `queue_print_request(request_id)`. `approvals approve --queue` remains as a local admin shortcut.
 
 ## MCP Server
 
@@ -85,6 +86,7 @@ Available V1.2 tools:
 - `show_print_plan`
 - `create_print_request`
 - `get_print_request_status`
+- `queue_print_request`
 - `get_job_status`
 
 Safe tool order:
@@ -96,11 +98,11 @@ Safe tool order:
 5. `list_printers()` and `get_printer_status(printer_id)`
 6. `prepare_print_plan(...)`
 7. `create_print_request(plan)`
-8. Agent waits or polls with `get_print_request_status(request_id)`
-9. Human reviews and queues locally: `print-concierge approvals approve <request_id> --queue`
-10. `get_job_status(job_id)` after the request reports a queued job
+8. User reviews the exact request in the client
+9. After explicit user confirmation, call `queue_print_request(request_id)`
+10. Poll `get_print_request_status(request_id)`, then `get_job_status(job_id)` after the request reports a queued job
 
-Security rule: do not load broad Bambuddy MCP tools in the same production agent profile. The point of Print Concierge is that all clients go through the curated planning workflow while queue approval stays outside the agent channel.
+Security rule: do not load broad Bambuddy MCP tools in the same production agent profile. The point of Print Concierge is that all clients go through the curated planning workflow and only receive scoped request queueing, not raw printer controls.
 
 ## Claude Desktop Example
 

@@ -2,7 +2,7 @@
 
 Print Concierge is a safety-first workflow layer for agent-assisted 3D printing with Bambuddy and Bambu Lab printers.
 
-It gives Claude, Codex, Hermes, OpenClaw, and other MCP-capable clients a narrow set of tools to search for models, import and verify printable files, prepare print plans, create pending human approval requests, and report status. The MCP server does not expose queue or start-print authority to the agent.
+It gives Claude, Codex, Hermes, OpenClaw, and other MCP-capable clients a narrow set of tools to search for models, import and verify printable files, prepare print plans, create request-bound queue actions, and report status. The MCP server does not expose raw Bambuddy queue or start-print authority to the agent.
 
 ## Overview
 
@@ -17,7 +17,7 @@ The agent can help with discovery and planning, but Print Concierge enforces the
 - only trusted Bambuddy archive/library files can be prepared for queueing;
 - public model results must be imported and verified first;
 - every print plan becomes a pending request before queueing;
-- human approval happens out of band through the local CLI or future local UI;
+- queueing is limited to a scoped `queue_print_request(request_id)` action for an existing request;
 - queueing defaults to Bambuddy manual-start behavior.
 
 This keeps the assistant useful without giving it direct, unchecked control over a physical machine.
@@ -32,7 +32,7 @@ This keeps the assistant useful without giving it direct, unchecked control over
 - File hash and sliced-file verification before planning
 - Curated MCP server for agent clients
 - CLI for setup, smoke tests, and local use
-- Out-of-band local approval gateway before queueing
+- Scoped MCP/CLI queueing for existing print requests
 - Local SQLite runtime state
 - Installable skill packages for Claude, Codex, Hermes, and OpenClaw
 
@@ -115,7 +115,7 @@ uv run print-concierge prepare \
 
 `prepare` does not queue a print. It only creates a plan.
 
-Create a pending approval request from the plan JSON, then approve it locally:
+Create a pending request from the plan JSON, inspect it, then queue that specific request:
 
 ```sh
 PLAN_JSON="$(uv run print-concierge prepare --archive-id 8 --printer-id 1 --material PLA --profile 0.2mm)"
@@ -123,6 +123,12 @@ REQUEST_JSON="$(uv run print-concierge request-print --plan-json "$PLAN_JSON")"
 REQUEST_ID="$(python -c 'import json,sys; print(json.load(sys.stdin)["request_id"])' <<< "$REQUEST_JSON")"
 
 uv run print-concierge approvals show "$REQUEST_ID"
+uv run print-concierge queue-request "$REQUEST_ID"
+```
+
+The older local admin shortcut still exists for manual workflows:
+
+```sh
 uv run print-concierge approvals approve "$REQUEST_ID" --queue
 ```
 
@@ -167,9 +173,9 @@ A typical agent flow should use the tools in this order:
 4. `list_printers()` and `get_printer_status(printer_id)`
 5. `prepare_print_plan(...)`
 6. `create_print_request(plan)`
-7. The agent waits or polls with `get_print_request_status(request_id)`.
-8. The human reviews and approves locally with `print-concierge approvals approve <request_id> --queue`.
-9. `get_job_status(job_id)` after the request reports a queued job.
+7. The user reviews the exact plan/request in the client.
+8. After explicit user confirmation, call `queue_print_request(request_id)`.
+9. Poll `get_print_request_status(request_id)`, then `get_job_status(job_id)` after the request reports a queued job.
 
 Do not load broad Bambuddy MCP tools into the same production agent profile. The safety value of Print Concierge comes from keeping all agent actions inside the curated workflow.
 
@@ -198,9 +204,9 @@ The queueing path requires:
 - a deterministic plan hash;
 - a user/session binding;
 - a pending print request;
-- out-of-band human approval through the local admin channel.
+- a scoped request queue action, `queue_print_request(request_id)`, after explicit user confirmation.
 
-The agent never receives a direct queue or print-start tool. Emergency pause and cancel controls remain in Bambuddy for this version.
+The agent never receives raw Bambuddy queue, start, pause, cancel, or broad printer-control tools through Print Concierge. `queue_print_request` can only submit a stored request whose immutable plan still matches the queued payload. Bambuddy manual-start remains the default, so queueing and physical print start are separate steps. Emergency pause and cancel controls remain in Bambuddy for this version.
 
 ## Configuration Reference
 

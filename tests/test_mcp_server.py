@@ -16,7 +16,7 @@ class FakeClient:
         return {"id": printer_id, "status": "idle"}
 
     def queue_print(self, payload):
-        raise AssertionError("MCP tools must not queue prints")
+        raise AssertionError("only the scoped queue gateway should call queue_print")
 
     def get_job_status(self, job_id):
         return {"job_id": job_id, "status": "queued"}
@@ -138,6 +138,15 @@ class FakeApproval:
         }
 
 
+class FakeQueueGateway:
+    def __init__(self):
+        self.request_ids = []
+
+    def queue_print_request(self, request_id):
+        self.request_ids.append(request_id)
+        return {"job_id": "job-1", "status": "queued", "request_id": request_id}
+
+
 def test_mcp_tool_functions_are_callable_without_mcp_sdk():
     assert mcp_server.list_printers(client=FakeClient()) == [{"id": "p1", "name": "A1 mini"}]
     assert mcp_server.get_printer_status("p1", client=FakeClient())["status"] == "idle"
@@ -198,6 +207,24 @@ def test_mcp_create_print_request_rejects_dict_without_plan_hash_or_session():
         )
 
 
+def test_mcp_queue_print_request_uses_scoped_gateway():
+    gateway = FakeQueueGateway()
+
+    queued = mcp_server.queue_print_request("req_test", queue_gateway=gateway)
+
+    assert queued == {"job_id": "job-1", "status": "queued", "request_id": "req_test"}
+    assert gateway.request_ids == ["req_test"]
+
+
+def test_mcp_queue_print_request_rejects_ambiguous_gateway_response():
+    class AmbiguousGateway:
+        def queue_print_request(self, request_id):
+            return {"status": "queued"}
+
+    with pytest.raises(ValueError, match="job_id"):
+        mcp_server.queue_print_request("req_test", queue_gateway=AmbiguousGateway())
+
+
 def test_mcp_registered_tool_wrappers_hide_injected_runtime_objects(monkeypatch):
     captured = []
 
@@ -227,6 +254,7 @@ def test_mcp_registered_tool_wrappers_hide_injected_runtime_objects(monkeypatch)
     assert "search_archive_or_models" in registered
     assert "create_print_request" in registered
     assert "get_print_request_status" in registered
+    assert "queue_print_request" in registered
     assert "queue_confirmed_print" not in registered
     assert "request_confirmation" not in registered
     forbidden = {
@@ -234,6 +262,7 @@ def test_mcp_registered_tool_wrappers_hide_injected_runtime_objects(monkeypatch)
         "client",
         "approval_service",
         "print_client",
+        "queue_gateway",
         "search_provider",
     }
     for signature in registered.values():

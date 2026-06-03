@@ -17,6 +17,11 @@ class QueueClient:
         return {"job_id": "42", "status": "pending", "queue_item": {"id": 42}}
 
 
+class FailingQueueClient:
+    def queue_print(self, payload):
+        raise RuntimeError("network down")
+
+
 def _plan():
     return mcp_server.prepare_print_plan(
         selected=ModelSearchResult(
@@ -70,25 +75,52 @@ def test_runtime_print_request_rejects_forged_plan_hash(tmp_path):
         service.create_print_request(forged)
 
 
-def test_runtime_queue_gateway_requires_approved_request_and_queues_once(tmp_path):
+def test_runtime_queue_gateway_queues_pending_request_once(tmp_path):
     state = RuntimeState(tmp_path / "state.sqlite3")
     service = RuntimeApprovalService(state)
     queue_client = QueueClient()
     gateway = RuntimeQueueGateway(state, queue_client)
     request = service.create_print_request(_plan())
 
-    with pytest.raises(ValueError, match="not approved"):
-        gateway.queue_approved_print(request["request_id"])
-
-    service.approve_print_request(request["request_id"])
-    queued = gateway.queue_approved_print(request["request_id"])
+    queued = gateway.queue_print_request(request["request_id"])
 
     assert queued["job_id"] == "42"
     assert queue_client.payloads[0]["_print_concierge_confirmed"] is True
     assert queue_client.payloads[0]["approval"]["request_id"] == request["request_id"]
     assert queue_client.payloads[0]["plan_hash"] == request["plan_hash"]
+    status = service.get_print_request_status(request["request_id"])
+    assert status["status"] == "queued"
+    assert status["queue_job_id"] == "42"
     with pytest.raises(ValueError, match="already used"):
-        gateway.queue_approved_print(request["request_id"])
+        gateway.queue_print_request(request["request_id"])
+
+
+def test_runtime_queue_gateway_rejects_duplicate_queue_claim(tmp_path):
+    state = RuntimeState(tmp_path / "state.sqlite3")
+    service = RuntimeApprovalService(state)
+    request = service.create_print_request(_plan())
+
+    claimed, _ = state.claim_request_for_queue(request["request_id"])
+
+    assert claimed["status"] == "queueing"
+    with pytest.raises(ValueError, match="already queueing"):
+        RuntimeQueueGateway(state, QueueClient()).queue_print_request(request["request_id"])
+
+
+def test_runtime_queue_gateway_marks_failed_request_without_retrying(tmp_path):
+    state = RuntimeState(tmp_path / "state.sqlite3")
+    service = RuntimeApprovalService(state)
+    gateway = RuntimeQueueGateway(state, FailingQueueClient())
+    request = service.create_print_request(_plan())
+
+    with pytest.raises(RuntimeError, match="network down"):
+        gateway.queue_print_request(request["request_id"])
+
+    status = service.get_print_request_status(request["request_id"])
+    assert status["status"] == "failed"
+    assert "network down" in status["queue_error"]
+    with pytest.raises(ValueError, match="failed"):
+        gateway.queue_print_request(request["request_id"])
 
 
 def test_mcp_default_print_request_uses_runtime_state(monkeypatch, tmp_path):
