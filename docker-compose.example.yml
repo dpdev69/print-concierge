@@ -1,0 +1,20 @@
+services:
+  print-concierge:
+    build: .
+    environment:
+      BAMBUDDY_BASE_URL: "http://bambuddy:8000"
+      BAMBUDDY_API_KEY: "${BAMBUDDY_API_KEY}"
+      PRINT_CONCIERGE_OWNER_ID: "local-owner"
+      PRINT_CONCIERGE_DB: "/data/print-concierge.sqlite"
+      PRINT_CONCIERGE_AUDIT_LOG: "/data/audit.jsonl"
+    volumes:
+      - print-concierge-data:/data
+    networks:
+      - bambuddy
+
+networks:
+  bambuddy:
+    external: true
+
+volumes:
+  print-concierge-data:

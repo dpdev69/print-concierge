@@ -1,0 +1,28 @@
+[project]
+name = "print-concierge"
+version = "0.1.0"
+description = "A safety-first Bambuddy companion for agent-assisted 3D printing."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+mcp = [
+    "mcp>=1.0",
+]
+
+[project.scripts]
+print-concierge = "print_concierge.interfaces.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
