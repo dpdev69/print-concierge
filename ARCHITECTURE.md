@@ -36,7 +36,7 @@ Safety Gateway / Policy Engine
 Bambuddy Adapter
   - direct REST API and/or bambuddy-mcp bridge
   - printer status
-  - archive/import/queue/start
+  - archive/import/queue/status
   - camera/snapshot
         |
         v
@@ -291,8 +291,8 @@ Important:
 
 ## Open questions
 
-- What exact Bambuddy endpoints are needed for import/queue/start?
-- Is separate queueing possible before start?
+- What additional Bambuddy endpoints are needed for non-MakerWorld import adapters?
+- Is a trusted operator direct-start mode ever worth adding, or should V1 stay queue/manual-start only?
 - Which model sources have stable, acceptable APIs?
 - Can Bambuddy provide build plate empty detection/camera snapshots reliably?
 - How much slicing should be delegated to Bambuddy/Bambu Studio vs local tools?

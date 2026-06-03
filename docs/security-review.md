@@ -4,7 +4,7 @@ Review date: 2026-06-03
 
 ## Summary
 
-No high-severity findings remain open in the current V1 code. The project is intentionally conservative: public search and agent-facing tools can discover models, but plan preparation for physical queueing and the only print-queue path are limited to Bambuddy archive/imported trusted items and backend-enforced confirmation.
+No high-severity findings remain open in the current V1.1 code. The project is intentionally conservative: public search and agent-facing tools can discover models, but plan preparation for physical queueing and the only print-queue path are limited to Bambuddy archive/imported trusted items and backend-enforced confirmation.
 
 ## Threat model
 
@@ -60,6 +60,15 @@ Status: mitigated for V1.
 - `BambuddyClient.queue_print` refuses payloads without the internal `_print_concierge_confirmed` marker.
 - Bambuddy queue payload uses `manual_start` by default through `PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true`.
 
+### 3a. Public import boundary
+
+Status: mitigated for V1.1.
+
+- `import_public_candidate` currently supports MakerWorld import through Bambuddy only.
+- MakerWorld import verifies the resulting Bambuddy library file by fetching file metadata and requiring a file hash.
+- Imported library file identity is carried into the print plan as `library_file_id` and remains subject to the same confirmation-gated queue path.
+- Unsupported public providers remain discovery-only until a trusted adapter exists.
+
 ### 4. Raw Bambuddy access
 
 Status: mitigated by packaging guidance.
@@ -91,7 +100,8 @@ rg -n --hidden --glob '!.git/**' --glob '!.env' --glob '!dist/**' --glob '!.venv
 ## Residual risks
 
 - Public search uses third-party indexed pages and should be treated as discovery only, not proof of printability.
-- Public model downloads/imports are not automated in V1; imported files need provenance, hash, license, and slicer/profile verification before printing.
+- MakerWorld import depends on Bambuddy's MakerWorld integration and available Bambu Cloud download credentials.
+- Non-MakerWorld public providers remain discovery-only until provenance, hash, license, and slicer/profile verification adapters are implemented.
 - The default runtime state is local SQLite. Multi-user hosted deployments should move confirmation state to a transactional service with operator observability.
 - Least-privilege Bambuddy tokens depend on Bambuddy deployment configuration.
 - Pause/cancel controls are not exposed in V1; operators should use Bambuddy directly for emergency control.

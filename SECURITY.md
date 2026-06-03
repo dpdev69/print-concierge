@@ -180,6 +180,7 @@ It must verify:
 Recommended default tools:
 
 - `search_archive_or_models(query, limit)`
+- `import_public_candidate(selected, profile_id, folder_id)`
 - `list_printers()`
 - `get_printer_status(printer_id)`
 - `prepare_print_plan(selected, printer, material, profile, user_id, session_id)`

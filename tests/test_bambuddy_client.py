@@ -148,6 +148,84 @@ def test_queue_print_maps_confirmed_archive_plan_to_bambuddy_queue_payload(monke
     }
 
 
+def test_queue_print_maps_confirmed_library_plan_to_bambuddy_queue_payload(monkeypatch):
+    seen = {}
+
+    def handler(request):
+        seen["path"] = request.url.path
+        seen["payload"] = json.loads(request.read())
+        return httpx.Response(
+            200,
+            json={
+                "id": 43,
+                "status": "pending",
+                "library_file_id": 77,
+                "printer_id": 1,
+                "manual_start": True,
+            },
+        )
+
+    client = _client(handler, monkeypatch)
+
+    result = client.queue_print(
+        {
+            "_print_concierge_confirmed": True,
+            "material_profile": "PLA / 0.2mm",
+            "printer": {"printer_id": "1"},
+            "model": {"metadata": {"library_file_id": "77"}},
+        }
+    )
+
+    assert result["job_id"] == "43"
+    assert seen["path"] == "/api/v1/queue/"
+    assert seen["payload"]["library_file_id"] == 77
+    assert "archive_id" not in seen["payload"]
+    assert seen["payload"]["manual_start"] is True
+
+
+def test_import_makerworld_model_and_fetch_library_file_use_allowlisted_paths(monkeypatch):
+    seen = []
+
+    def handler(request):
+        body = request.read()
+        seen.append((request.method, request.url.path, json.loads(body or b"{}")))
+        if request.url.path == "/api/v1/makerworld/import":
+            return httpx.Response(
+                200,
+                json={
+                    "library_file_id": 77,
+                    "filename": "Headphone Clamp Mount.3mf",
+                    "folder_id": 5,
+                    "profile_id": 222,
+                    "was_existing": False,
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": 77,
+                "filename": "Headphone Clamp Mount.3mf",
+                "file_hash": "sha256:imported-file",
+            },
+        )
+
+    client = _client(handler, monkeypatch)
+
+    imported = client.import_makerworld_model(model_id=1760116, profile_id=222, folder_id=5)
+    file_info = client.get_library_file("77")
+
+    assert imported["library_file_id"] == 77
+    assert file_info["file_hash"] == "sha256:imported-file"
+    assert seen == [
+        (
+            "POST",
+            "/api/v1/makerworld/import",
+            {"model_id": 1760116, "profile_id": 222, "folder_id": 5},
+        ),
+        ("GET", "/api/v1/library/files/77", {}),
+    ]
+
+
 def test_get_job_status_reads_queue_item(monkeypatch):
     paths = []
 

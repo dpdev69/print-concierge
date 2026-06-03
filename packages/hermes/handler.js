@@ -8,6 +8,8 @@ export const skill = {
   },
   tools: [
     "search_archive_or_models",
+    "get_public_import_status",
+    "import_public_candidate",
     "list_printers",
     "get_printer_status",
     "prepare_print_plan",

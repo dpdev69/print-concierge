@@ -42,6 +42,31 @@ def test_prepare_print_plan_uses_source_hash_and_does_not_generate_confirmation(
     assert "confirmation_token" not in plan.to_dict()
 
 
+def test_prepare_print_plan_preserves_imported_library_file_identity():
+    plan = prepare_print_plan(
+        selected=ModelSearchResult(
+            provider="bambuddy_library",
+            result_id="library:77",
+            title="Headphone Clamp Mount for Desk | 2 Versions",
+            license="CC-BY",
+            profile="0.2mm",
+            source="https://makerworld.com/en/models/1760116",
+            file_name="Headphone Clamp Mount.3mf",
+            file_hash="sha256:imported-file",
+            metadata={"library_file_id": "77", "source_type": "makerworld", "verified": True},
+        ),
+        printer={"id": "p1", "name": "A1 mini", "model": "A1", "fresh": True, "provenance": "bambuddy"},
+        material={"type": "PLA", "fresh": True, "provenance": "bambuddy"},
+        profile={"name": "0.2mm", "fresh": True, "provenance": "bambuddy"},
+        user_id="u1",
+        session_id="s1",
+    )
+
+    assert plan.model.metadata["library_file_id"] == "77"
+    assert plan.model.metadata["source_type"] == "makerworld"
+    assert plan.model.metadata["verified"] is True
+
+
 def test_prepare_print_plan_hashes_file_bytes_when_provided():
     plan = prepare_print_plan(
         selected=selected_result(file_hash="sourcehash"),

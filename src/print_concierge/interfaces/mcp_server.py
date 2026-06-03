@@ -5,6 +5,7 @@ from typing import Any, Mapping
 from print_concierge import planner as print_planner
 from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan
+from print_concierge.public_imports import import_public_candidate as import_public_model_candidate
 from print_concierge.runtime import RuntimeConfirmationService, RuntimeQueueGateway, RuntimeState
 from print_concierge.search.base import ModelSearchResult
 from print_concierge.search.composite import CompositeSearchProvider
@@ -34,6 +35,29 @@ def search_archive_or_models(
 ) -> list[dict[str, Any]]:
     provider = archive_provider or search_provider or _default_search_provider()
     return [_jsonable(result) for result in _search_provider(provider, query, limit=limit)]
+
+
+def import_public_candidate(
+    selected: ModelSearchResult | Mapping[str, Any],
+    *,
+    profile_id: int | None = None,
+    folder_id: int | None = None,
+    client: Any = None,
+) -> dict[str, Any]:
+    imported = import_public_model_candidate(
+        selected,
+        client=client or _default_bambuddy_client(),
+        profile_id=profile_id,
+        folder_id=folder_id,
+    )
+    return _jsonable(imported)
+
+
+def get_public_import_status(*, client: Any = None) -> dict[str, Any]:
+    runtime_client = client or _default_bambuddy_client()
+    if runtime_client and hasattr(runtime_client, "get_makerworld_status"):
+        return {"makerworld": dict(runtime_client.get_makerworld_status())}
+    return {"makerworld": {"status": "unavailable", "can_download": False}}
 
 
 def prepare_print_plan(
@@ -136,6 +160,21 @@ def main() -> None:
     def search_archive_or_models(query: str, limit: int = 5) -> list[dict[str, Any]]:
         return globals()["search_archive_or_models"](query, limit=limit)
 
+    def import_public_candidate(
+        selected: dict[str, Any],
+        profile_id: int | None = None,
+        folder_id: int | None = None,
+    ) -> dict[str, Any]:
+        return globals()["import_public_candidate"](
+            selected,
+            profile_id=profile_id,
+            folder_id=folder_id,
+            client=_default_bambuddy_client(),
+        )
+
+    def get_public_import_status() -> dict[str, Any]:
+        return globals()["get_public_import_status"](client=_default_bambuddy_client())
+
     def prepare_print_plan(
         *,
         selected: dict[str, Any],
@@ -180,6 +219,8 @@ def main() -> None:
         list_printers,
         get_printer_status,
         search_archive_or_models,
+        import_public_candidate,
+        get_public_import_status,
         prepare_print_plan,
         show_print_plan,
         request_confirmation,

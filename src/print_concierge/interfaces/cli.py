@@ -8,6 +8,7 @@ from typing import Any, Sequence
 
 from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan, prepare_print_plan
+from print_concierge.public_imports import import_public_candidate
 from print_concierge.search.base import ModelSearchResult
 from print_concierge.search.composite import CompositeSearchProvider
 from print_concierge.search.external import (
@@ -68,6 +69,39 @@ def main(
             session_id=args.session_id,
         )
         _emit(out, plan)
+    elif args.command == "prepare-selected":
+        selected = json.loads(args.selected_json)
+        plan = prepare_print_plan(
+            selected=selected,
+            printer={
+                "id": args.printer_id,
+                "name": args.printer_id,
+                "model": "unknown",
+                "fresh": True,
+                "provenance": "cli-demo",
+            },
+            material={"type": args.material, "fresh": True, "provenance": "cli-demo"},
+            profile={"name": args.profile, "fresh": True, "provenance": "cli-demo"},
+            user_id=args.user_id,
+            session_id=args.session_id,
+        )
+        _emit(out, plan)
+    elif args.command == "import-public":
+        selected = json.loads(args.candidate_json)
+        _emit(
+            out,
+            import_public_candidate(
+                selected,
+                client=client,
+                profile_id=args.profile_id,
+                folder_id=args.folder_id,
+            ),
+        )
+    elif args.command == "import-status":
+        if client and hasattr(client, "get_makerworld_status"):
+            _emit(out, {"makerworld": client.get_makerworld_status()})
+        else:
+            _emit(out, {"makerworld": {"status": "unavailable", "can_download": False}})
     elif args.command == "confirm":
         if confirmation_service is None:
             raise SystemExit("confirm requires an injected confirmation service in this build")
@@ -105,6 +139,18 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--profile", required=True)
     prepare.add_argument("--user-id", default="cli-user")
     prepare.add_argument("--session-id", default="cli-session")
+    prepare_selected = subparsers.add_parser("prepare-selected")
+    prepare_selected.add_argument("--selected-json", required=True)
+    prepare_selected.add_argument("--printer-id", required=True)
+    prepare_selected.add_argument("--material", required=True)
+    prepare_selected.add_argument("--profile", required=True)
+    prepare_selected.add_argument("--user-id", default="cli-user")
+    prepare_selected.add_argument("--session-id", default="cli-session")
+    import_public = subparsers.add_parser("import-public")
+    import_public.add_argument("--candidate-json", required=True)
+    import_public.add_argument("--profile-id", type=int)
+    import_public.add_argument("--folder-id", type=int)
+    subparsers.add_parser("import-status")
     confirm = subparsers.add_parser("confirm")
     confirm.add_argument("plan_id")
     queue = subparsers.add_parser("queue")

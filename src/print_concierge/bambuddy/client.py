@@ -39,6 +39,8 @@ class BambuddyClient:
         ("GET", "/api/v1/printers/"),
         ("GET", "/api/v1/archives/"),
         ("GET", "/api/v1/queue/"),
+        ("GET", "/api/v1/makerworld/status"),
+        ("POST", "/api/v1/makerworld/import"),
         ("POST", "/api/v1/queue/"),
     }
 
@@ -79,6 +81,26 @@ class BambuddyClient:
 
     def get_archive(self, archive_id: str) -> Any:
         return self._request("GET", f"/api/v1/archives/{self._path_id(archive_id)}")
+
+    def get_library_file(self, file_id: str) -> Any:
+        return self._request("GET", f"/api/v1/library/files/{self._path_id(file_id)}")
+
+    def get_makerworld_status(self) -> Any:
+        return self._request("GET", "/api/v1/makerworld/status")
+
+    def import_makerworld_model(
+        self,
+        *,
+        model_id: int,
+        profile_id: int | None = None,
+        folder_id: int | None = None,
+    ) -> Any:
+        payload: dict[str, Any] = {"model_id": int(model_id)}
+        if profile_id is not None:
+            payload["profile_id"] = int(profile_id)
+        if folder_id is not None:
+            payload["folder_id"] = int(folder_id)
+        return self._request("POST", "/api/v1/makerworld/import", json=payload)
 
     def get_snapshot(self, printer_id: str) -> Any:
         return self._request(
@@ -168,6 +190,12 @@ class BambuddyClient:
             return
         if method == "GET" and len(parts) == 4 and parts[:3] == ["api", "v1", "queue"]:
             return
+        if (
+            method == "GET"
+            and len(parts) == 5
+            and parts[:4] == ["api", "v1", "library", "files"]
+        ):
+            return
         raise BambuddyError(f"Endpoint is not allowlisted: {method} {path}")
 
     @staticmethod
@@ -178,14 +206,16 @@ class BambuddyClient:
     def _queue_payload(cls, plan: dict[str, Any]) -> dict[str, Any]:
         metadata = plan.get("model", {}).get("metadata", {})
         archive_id = metadata.get("archive_id") or plan.get("archive_id")
-        if archive_id is None:
-            raise BambuddyError("confirmed queue payload requires a Bambuddy archive_id")
+        library_file_id = metadata.get("library_file_id") or plan.get("library_file_id")
+        if archive_id is None and library_file_id is None:
+            raise BambuddyError(
+                "confirmed queue payload requires a Bambuddy archive_id or library_file_id"
+            )
         printer_id = plan.get("printer", {}).get("printer_id") or plan.get("printer_id")
         if printer_id is None:
             raise BambuddyError("confirmed queue payload requires a printer_id")
         material = str(plan.get("material_profile", "")).split("/", 1)[0].strip()
         payload = {
-            "archive_id": int(archive_id),
             "bed_levelling": True,
             "flow_cali": False,
             "gcode_injection": False,
@@ -197,6 +227,10 @@ class BambuddyClient:
             "use_ams": True,
             "vibration_cali": True,
         }
+        if archive_id is not None:
+            payload["archive_id"] = int(archive_id)
+        if library_file_id is not None:
+            payload["library_file_id"] = int(library_file_id)
         if material:
             payload["required_filament_types"] = [material]
         return payload

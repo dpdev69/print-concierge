@@ -74,6 +74,30 @@ class FakeExternalProvider:
         )
 
 
+class FakeImportClient:
+    def get_makerworld_status(self):
+        return {"has_cloud_token": True, "can_download": True}
+
+    def import_makerworld_model(self, *, model_id, profile_id=None, folder_id=None):
+        return {
+            "library_file_id": 77,
+            "filename": "Headphone Clamp Mount.3mf",
+            "folder_id": folder_id,
+            "profile_id": profile_id,
+            "was_existing": False,
+        }
+
+    def get_library_file(self, file_id):
+        return {
+            "id": 77,
+            "filename": "Headphone Clamp Mount.3mf",
+            "file_hash": "sha256:imported-file",
+            "file_type": "gcode.3mf",
+            "file_size": 123456,
+            "metadata": {"source_url": "https://makerworld.com/en/models/1760116"},
+        }
+
+
 class FakeLimitedProvider:
     def __init__(self):
         self.kwargs = None
@@ -242,6 +266,30 @@ def test_mcp_search_accepts_limit_for_public_tool_shape():
 
     assert provider.kwargs == {"limit": 1}
     assert [result["title"] for result in results] == ["First"]
+
+
+def test_mcp_import_public_candidate_returns_trusted_library_result():
+    result = mcp_server.import_public_candidate(
+        {
+            "provider": "3dsearch_makerworld",
+            "result_id": "https://3dsearch.net/model/headphone-clamp-mount-for-desk-2-versions-mw1760116",
+            "title": "Headphone Clamp Mount for Desk | 2 Versions",
+            "source": "https://3dsearch.net/model/headphone-clamp-mount-for-desk-2-versions-mw1760116",
+        },
+        client=FakeImportClient(),
+        profile_id=222,
+        folder_id=5,
+    )
+
+    assert result["provider"] == "bambuddy_library"
+    assert result["metadata"]["library_file_id"] == "77"
+    assert result["file_hash"] == "sha256:imported-file"
+
+
+def test_mcp_public_import_status_reports_makerworld_download_readiness():
+    assert mcp_server.get_public_import_status(client=FakeImportClient()) == {
+        "makerworld": {"has_cloud_token": True, "can_download": True}
+    }
 
 
 def test_mcp_job_status_degrades_when_client_has_no_job_status_method():

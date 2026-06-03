@@ -84,6 +84,8 @@ def test_skill_packages_contain_core_safety_instructions():
         "least privilege",
         "no direct start",
         "bambuddy credentials",
+        "get_public_import_status",
+        "import_public_candidate",
     ]
 
     for phrase in required_phrases:
@@ -104,7 +106,7 @@ def test_skill_packages_include_mcp_command_examples():
 
 def test_host_specific_shims_reference_canonical_skill_and_tools():
     expected = {
-        "packages/claude/SKILL.md": ["../../skills/print-concierge/SKILL.md", "list_printers", "prepare_print_plan"],
+        "packages/claude/SKILL.md": ["../../skills/print-concierge/SKILL.md", "list_printers", "import_public_candidate"],
         "packages/codex/print-concierge/SKILL.md": ["../../../skills/print-concierge/SKILL.md", "queue_confirmed_print"],
         "packages/hermes/skill.yaml": ["../../skills/print-concierge/SKILL.md", "request_confirmation"],
         "packages/openclaw/print-concierge/SKILL.md": ["../../../skills/print-concierge/SKILL.md", "search_archive_or_models"],

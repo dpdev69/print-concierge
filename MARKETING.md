@@ -9,7 +9,7 @@ It helps users:
 1. ask for the thing they need;
 2. review vetted printable models;
 3. approve the exact print job;
-4. let Bambuddy queue/start/monitor safely.
+4. let Bambuddy queue and monitor safely, with manual start by default.
 
 Lead with security and control, not autonomy.
 
@@ -134,7 +134,7 @@ Body:
 ```text
 I’m building Print Concierge, an open-source, human-in-the-loop assistant for Bambu/Bambuddy users.
 
-The idea: ask for an object in chat, get a few printable model options, pick one, review the exact print plan, and only then allow Bambuddy to queue/start the job.
+The idea: ask for an object in chat, get a few printable model options, pick one, review the exact print plan, and only then allow Bambuddy to queue the job.
 
 The main design rule is that the LLM is not the safety boundary. It can search and prepare, but the backend enforces confirmation tokens before any physical printer action.
 

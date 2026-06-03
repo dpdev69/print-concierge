@@ -63,6 +63,7 @@ def prepare_print_plan(
                 "provider_result_id": result.result_id,
                 "source": result.source,
                 "warnings": result.warnings,
+                **_trusted_model_metadata(result.metadata),
             }
         ),
     )
@@ -118,6 +119,21 @@ def _validate_fresh(name: str, data: Mapping[str, Any]) -> None:
         raise ValueError(f"{name}.fresh must be true for preparation")
     if not data.get("provenance"):
         raise ValueError(f"{name}.provenance is required")
+
+
+def _trusted_model_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    allowed_keys = {
+        "file_size",
+        "file_type",
+        "folder_id",
+        "library_file_id",
+        "makerworld_model_id",
+        "makerworld_profile_id",
+        "source_type",
+        "verified",
+        "was_existing",
+    }
+    return {key: metadata[key] for key in allowed_keys if key in metadata}
 
 
 def _resolve_file_hash(

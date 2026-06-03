@@ -131,7 +131,7 @@ Acceptance criteria:
 
 ---
 
-## Phase 4 — Confirmation-token queue/start flow
+## Phase 4 — Confirmation-token queue flow
 
 **Goal:** Enable real printing, guarded by backend-enforced user approval.
 
@@ -149,7 +149,7 @@ Features:
   - timestamp and expiry.
 - User must reply with exact token or click a trusted UI button.
 - Backend verifies token before calling Bambuddy.
-- Start with "queue/import" if Bambuddy supports queueing separately; then add direct start.
+- Start with import plus confirmation-gated queueing; keep direct start out of the default agent surface.
 
 Acceptance criteria:
 

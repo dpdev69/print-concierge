@@ -13,7 +13,7 @@ Expected flow:
 
 1. Search Bambuddy archive items plus public discovery candidates.
 2. User selects one candidate.
-3. Public-index candidates are imported/verified into Bambuddy or another trusted archive before preparation.
+3. Supported MakerWorld candidates are imported/verified with `import_public_candidate`; other public-index candidates wait for a trusted adapter before preparation.
 4. Prepare an immutable print plan for the trusted item.
 5. Request confirmation through Hermes or the configured confirmation service.
 6. Queue only the confirmed trusted archive/imported item.

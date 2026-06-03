@@ -76,4 +76,4 @@
 
 ### V1 boundary note
 
-Public search remains enabled for discovery. Physical queueing is intentionally limited to Bambuddy archive/imported trusted items with backend-enforced confirmation. Automatic public model download/import is a future feature after provenance, hash, license, and slicer/profile verification are implemented.
+Public search remains enabled for discovery. Physical queueing is intentionally limited to Bambuddy archive/imported trusted items with backend-enforced confirmation. V1.1 adds `import_public_candidate` for supported MakerWorld results; other public providers remain discovery-only until trusted import adapters exist.

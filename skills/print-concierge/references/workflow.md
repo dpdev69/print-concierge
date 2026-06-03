@@ -28,10 +28,11 @@ Example MCP client shape:
 ## Tool Order
 
 1. Search: `search_archive_or_models(query, limit)`. This searches Bambuddy archives plus enabled public/model-search providers; public results are discovery only until imported/verified into a trusted archive.
-2. Inspect printer: `list_printers()` and `get_printer_status(printer_id)`.
-3. Prepare: `prepare_print_plan(selected, printer, material, profile, user_id, session_id)`.
-4. Confirm: `request_confirmation(plan)` through the host user channel.
-5. Queue: `queue_confirmed_print(confirmation_token)`.
-6. Monitor: `get_job_status(job_id)`.
+2. Import if needed: call `get_public_import_status()` first, then `import_public_candidate(selected, profile_id, folder_id)` for supported MakerWorld candidates, then use the returned `bambuddy_library` result.
+3. Inspect printer: `list_printers()` and `get_printer_status(printer_id)`.
+4. Prepare: `prepare_print_plan(selected, printer, material, profile, user_id, session_id)`.
+5. Confirm: `request_confirmation(plan)` through the host user channel.
+6. Queue: `queue_confirmed_print(confirmation_token)`.
+7. Monitor: `get_job_status(job_id)`.
 
 Public search results are candidates, not print authority. Queue only from a Bambuddy archive/imported trusted item after confirmation. Do not skip confirmation. Do not use broad Bambuddy MCP tools in the same production agent profile.
