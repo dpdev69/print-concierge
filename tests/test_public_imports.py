@@ -1,6 +1,7 @@
 import pytest
 
 from print_concierge.public_imports import (
+    DownloadedPublicFile,
     PublicImportNeedsSlicingError,
     UnsupportedPublicImportError,
     import_public_candidate,
@@ -117,6 +118,85 @@ class FakeSlicingPublicFileImportClient:
         }
 
 
+class ConfigurableSlicingPublicFileImportClient:
+    def __init__(
+        self,
+        *,
+        slice_result=None,
+        slice_jobs=None,
+        sliced_file_id="99",
+        sliced_file_hash="sha256:sliced-file",
+        sliced_file_type="gcode.3mf",
+    ):
+        self.slice_result = slice_result or {"job_id": "slice-123", "status": "queued"}
+        self.slice_jobs = list(slice_jobs or [])
+        self.sliced_file_id = str(sliced_file_id)
+        self.sliced_file_hash = sliced_file_hash
+        self.sliced_file_type = sliced_file_type
+        self.upload_calls = []
+        self.slice_calls = []
+        self.job_calls = []
+        self.get_library_file_calls = []
+
+    def upload_library_file(self, *, filename, content, folder_id=None):
+        self.upload_calls.append(
+            {"filename": filename, "content": content, "folder_id": folder_id}
+        )
+        return {
+            "id": 88,
+            "filename": filename,
+            "file_type": "stl",
+            "file_size": len(content),
+            "folder_id": folder_id,
+        }
+
+    def slice_library_file(self, file_id, slice_options):
+        self.slice_calls.append({"file_id": file_id, "slice_options": slice_options})
+        return self.slice_result
+
+    def get_slice_job(self, job_id):
+        self.job_calls.append(job_id)
+        if self.slice_jobs:
+            return self.slice_jobs.pop(0)
+        return {"id": job_id, "status": "queued"}
+
+    def get_library_file(self, file_id):
+        self.get_library_file_calls.append(file_id)
+        if file_id == "88":
+            return {
+                "id": 88,
+                "filename": "source.stl",
+                "file_hash": "sha256:source-file",
+                "file_type": "stl",
+                "file_size": 12345,
+                "metadata": {},
+            }
+        assert file_id == self.sliced_file_id
+        return {
+            "id": file_id,
+            "filename": "source.gcode.3mf",
+            "file_hash": self.sliced_file_hash,
+            "file_type": self.sliced_file_type,
+            "file_size": 67890,
+            "metadata": {},
+        }
+
+
+def printables_candidate(*, metadata=None, file_name=None):
+    return ModelSearchResult(
+        provider="3dsearch_printables",
+        result_id="https://3dsearch.net/model/headphone-stand-184164",
+        title="Desk Headphone Holder",
+        source="https://3dsearch.net/model/headphone-stand-184164",
+        file_name=file_name,
+        metadata={"origin_site": "Printables", **(metadata or {})},
+    )
+
+
+def slicing_options():
+    return {"printer_preset_id": "Bambu Lab A1 mini 0.4 nozzle"}
+
+
 def test_import_public_makerworld_candidate_creates_trusted_library_result():
     candidate = ModelSearchResult(
         provider="3dsearch_makerworld",
@@ -211,6 +291,170 @@ def test_import_public_thingiverse_direct_queueable_file_uploads_and_verifies():
     assert imported.metadata["file_type"] == "gcode"
 
 
+def test_import_public_extracts_nested_raw_file_download_url_from_list():
+    candidate = printables_candidate(
+        metadata={
+            "raw": {
+                "files": [
+                    {"name": "preview.png"},
+                    {
+                        "name": "desk-holder.gcode.3mf",
+                        "download_url": (
+                            "https://media.printables.com/media/prints/184164/files/"
+                            "desk-holder.gcode.3mf"
+                        ),
+                    },
+                ]
+            }
+        }
+    )
+    client = FakePublicFileImportClient()
+    seen_urls = []
+
+    imported = import_public_candidate(
+        candidate,
+        client=client,
+        downloader=lambda url: seen_urls.append(url) or b"gcode-3mf-bytes",
+    )
+
+    assert seen_urls == [
+        "https://media.printables.com/media/prints/184164/files/desk-holder.gcode.3mf"
+    ]
+    assert client.upload_calls[0]["filename"] == "desk-holder.gcode.3mf"
+    assert imported.file_hash == "sha256:uploaded-file"
+
+
+def test_import_public_extracts_hyphenated_direct_url_key():
+    candidate = printables_candidate(
+        metadata={
+            "model-file": {
+                "direct-download-url": (
+                    "https://media.printables.com/media/prints/184164/files/"
+                    "desk-holder.gcode.3mf"
+                )
+            }
+        }
+    )
+    client = FakePublicFileImportClient()
+
+    import_public_candidate(
+        candidate,
+        client=client,
+        downloader=lambda url: (b"gcode-3mf-bytes", None),
+    )
+
+    assert client.upload_calls[0]["filename"] == "desk-holder.gcode.3mf"
+
+
+def test_import_public_accepts_downloaded_public_file_and_sanitizes_filename():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "desk-holder.gcode.3mf"
+            )
+        }
+    )
+    client = FakePublicFileImportClient()
+
+    imported = import_public_candidate(
+        candidate,
+        client=client,
+        downloader=lambda url: DownloadedPublicFile(
+            content=b"gcode-3mf-bytes",
+            filename="  ../unsafe\x00/path/\n Desk   Holder.gcode.3mf  ",
+        ),
+    )
+
+    assert client.upload_calls[0]["filename"] == "Desk Holder.gcode.3mf"
+    assert imported.file_name == "Desk Headphone Holder.gcode.3mf"
+
+
+def test_import_public_rejects_invalid_downloader_tuple_without_uploading():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "desk-holder.gcode.3mf"
+            )
+        }
+    )
+    client = FakePublicFileImportClient()
+
+    with pytest.raises(TypeError, match="downloader must return bytes"):
+        import_public_candidate(
+            candidate,
+            client=client,
+            downloader=lambda url: ("not bytes", "desk-holder.gcode.3mf"),
+        )
+
+    assert client.upload_calls == []
+
+
+def test_import_public_rejects_downloaded_public_file_with_non_bytes_content():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "desk-holder.gcode.3mf"
+            )
+        }
+    )
+    client = FakePublicFileImportClient()
+
+    with pytest.raises(TypeError, match="downloader must return bytes"):
+        import_public_candidate(
+            candidate,
+            client=client,
+            downloader=lambda url: DownloadedPublicFile(
+                content="not bytes",
+                filename="desk-holder.gcode.3mf",
+            ),
+        )
+
+    assert client.upload_calls == []
+
+
+def test_import_public_uses_metadata_filename_when_download_url_basename_is_generic():
+    candidate = printables_candidate(
+        metadata={
+            "file_name": "headphone-stand.stl",
+            "download_url": "https://media.printables.com/media/prints/184164/files/download",
+        }
+    )
+    client = FakePublicFileImportClient()
+
+    with pytest.raises(PublicImportNeedsSlicingError, match="sliced"):
+        import_public_candidate(
+            candidate,
+            client=client,
+            downloader=lambda url: pytest.fail("downloader should not be called"),
+        )
+
+    assert client.upload_calls == []
+
+
+@pytest.mark.parametrize(
+    "download_url",
+    [
+        "http://media.printables.com/media/prints/184164/files/desk-holder.gcode.3mf",
+        "https:///media/prints/184164/files/desk-holder.gcode.3mf",
+    ],
+)
+def test_import_public_rejects_untrusted_scheme_or_missing_host_before_fetching(download_url):
+    candidate = printables_candidate(metadata={"download_url": download_url})
+    client = FakePublicFileImportClient()
+
+    with pytest.raises(UnsupportedPublicImportError, match="trusted Printables"):
+        import_public_candidate(
+            candidate,
+            client=client,
+            downloader=lambda url: pytest.fail("downloader should not be called"),
+        )
+
+    assert client.upload_calls == []
+
+
 def test_import_public_source_geometry_requires_slicing_without_uploading():
     candidate = ModelSearchResult(
         provider="3dsearch_printables",
@@ -280,6 +524,128 @@ def test_import_public_source_geometry_slices_with_explicit_presets_and_verifies
     assert imported.metadata["verified"] is True
 
 
+def test_import_public_source_geometry_requires_slicing_client_methods():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "headphone-stand.stl"
+            )
+        }
+    )
+    client = FakePublicFileImportClient(file_type="stl")
+
+    with pytest.raises(TypeError, match="slicing methods"):
+        import_public_candidate(
+            candidate,
+            client=client,
+            downloader=lambda url: (b"solid mesh", "headphone-stand.stl"),
+            slice_options=slicing_options(),
+        )
+
+    assert client.upload_calls == [
+        {"filename": "headphone-stand.stl", "content": b"solid mesh", "folder_id": None}
+    ]
+
+
+def test_import_public_source_geometry_rejects_slice_response_without_job_or_output_id():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "headphone-stand.stl"
+            )
+        }
+    )
+    client = ConfigurableSlicingPublicFileImportClient(slice_result={"status": "queued"})
+
+    with pytest.raises(ValueError, match="job id or output file id"):
+        import_public_candidate(
+            candidate,
+            client=client,
+            downloader=lambda url: (b"solid mesh", "headphone-stand.stl"),
+            slice_options=slicing_options(),
+        )
+
+    assert client.job_calls == []
+
+
+def test_import_public_source_geometry_rejects_failed_slice_job_status():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "headphone-stand.stl"
+            )
+        }
+    )
+    client = ConfigurableSlicingPublicFileImportClient(
+        slice_result={"job_id": "slice-123", "status": "queued"},
+        slice_jobs=[{"id": "slice-123", "status": "failed"}],
+    )
+
+    with pytest.raises(ValueError, match="failed with status failed"):
+        import_public_candidate(
+            candidate,
+            client=client,
+            downloader=lambda url: (b"solid mesh", "headphone-stand.stl"),
+            slice_options=slicing_options(),
+        )
+
+    assert client.job_calls == ["slice-123"]
+
+
+def test_import_public_source_geometry_rejects_completed_slice_job_without_output():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "headphone-stand.stl"
+            )
+        }
+    )
+    client = ConfigurableSlicingPublicFileImportClient(
+        slice_result={"job_id": "slice-123", "status": "queued"},
+        slice_jobs=[{"id": "slice-123", "status": "completed"}],
+    )
+
+    with pytest.raises(ValueError, match="completed .* output file id"):
+        import_public_candidate(
+            candidate,
+            client=client,
+            downloader=lambda url: (b"solid mesh", "headphone-stand.stl"),
+            slice_options=slicing_options(),
+        )
+
+    assert client.job_calls == ["slice-123"]
+
+
+def test_import_public_source_geometry_returns_needs_slicing_when_slice_job_times_out():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "headphone-stand.stl"
+            )
+        }
+    )
+    client = ConfigurableSlicingPublicFileImportClient(
+        slice_result={"job_id": "slice-123", "status": "queued"},
+        slice_jobs=[{"id": "slice-123", "status": "queued"}],
+    )
+
+    with pytest.raises(PublicImportNeedsSlicingError, match="has not completed"):
+        import_public_candidate(
+            candidate,
+            client=client,
+            downloader=lambda url: (b"solid mesh", "headphone-stand.stl"),
+            slice_options=slicing_options(),
+            slice_wait_seconds=0,
+        )
+
+    assert client.job_calls == ["slice-123"]
+
+
 def test_import_public_source_geometry_rejects_unknown_slice_option_keys():
     candidate = ModelSearchResult(
         provider="3dsearch_thingiverse",
@@ -338,6 +704,86 @@ def test_import_public_candidate_rejects_unknown_public_provider_without_calling
         import_public_candidate(candidate, client=client)
 
     assert client.import_calls == []
+
+
+def test_import_public_candidate_requires_uploaded_file_hash():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "desk-holder.gcode.3mf"
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="file hash"):
+        import_public_candidate(
+            candidate,
+            client=FakePublicFileImportClient(file_hash=None),
+            downloader=lambda url: (b"gcode-3mf-bytes", "desk-holder.gcode.3mf"),
+        )
+
+
+def test_import_public_candidate_requires_uploaded_file_to_be_queueable():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "desk-holder.gcode.3mf"
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="sliced gcode/gcode.3mf"):
+        import_public_candidate(
+            candidate,
+            client=FakePublicFileImportClient(file_type="txt"),
+            downloader=lambda url: (b"gcode-3mf-bytes", "desk-holder.gcode.3mf"),
+        )
+
+
+def test_import_public_candidate_requires_sliced_file_hash():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "headphone-stand.stl"
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="file hash"):
+        import_public_candidate(
+            candidate,
+            client=ConfigurableSlicingPublicFileImportClient(
+                slice_result={"library_file_id": 99, "job_id": "slice-123"},
+                sliced_file_hash=None,
+            ),
+            downloader=lambda url: (b"solid mesh", "headphone-stand.stl"),
+            slice_options=slicing_options(),
+        )
+
+
+def test_import_public_candidate_requires_sliced_file_to_be_queueable():
+    candidate = printables_candidate(
+        metadata={
+            "download_url": (
+                "https://media.printables.com/media/prints/184164/files/"
+                "headphone-stand.stl"
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="sliced gcode/gcode.3mf"):
+        import_public_candidate(
+            candidate,
+            client=ConfigurableSlicingPublicFileImportClient(
+                slice_result={"library_file_id": 99, "job_id": "slice-123"},
+                sliced_file_type="txt",
+            ),
+            downloader=lambda url: (b"solid mesh", "headphone-stand.stl"),
+            slice_options=slicing_options(),
+        )
 
 
 def test_import_public_candidate_requires_imported_file_hash():

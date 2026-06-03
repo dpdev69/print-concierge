@@ -72,6 +72,12 @@ class FakeExternalProvider:
 
 
 class FakeImportClient:
+    def list_printers(self):
+        return [{"id": "p1", "name": "A1 mini"}]
+
+    def get_printer_status(self, printer_id):
+        return {"id": printer_id, "status": "idle"}
+
     def get_makerworld_status(self):
         return {"has_cloud_token": True, "can_download": True}
 
@@ -96,6 +102,9 @@ class FakeImportClient:
             "file_size": 123456,
             "metadata": {"source_url": "https://makerworld.com/en/models/1760116"},
         }
+
+    def get_job_status(self, job_id):
+        return {"job_id": job_id, "status": "queued"}
 
 
 class FakeLimitedProvider:
@@ -137,6 +146,9 @@ class FakeApproval:
             "plan_hash": plan["plan_hash"],
         }
 
+    def get_print_request_status(self, request_id):
+        return {"request_id": request_id, "status": "pending_user_approval"}
+
 
 class FakeQueueGateway:
     def __init__(self):
@@ -147,11 +159,80 @@ class FakeQueueGateway:
         return {"job_id": "job-1", "status": "queued", "request_id": request_id}
 
 
+class UnsupportedClient:
+    pass
+
+
+class LimitRejectingProvider:
+    def __init__(self):
+        self.calls = []
+
+    def search(self, query, **kwargs):
+        self.calls.append((query, kwargs))
+        if "limit" in kwargs:
+            raise TypeError("search() got an unexpected keyword argument 'limit'")
+        return (
+            ModelSearchResult(
+                provider="external",
+                result_id="ext-1",
+                title="First",
+                license="CC0",
+                profile="0.20mm",
+                source="https://example.test/1",
+            ),
+            ModelSearchResult(
+                provider="external",
+                result_id="ext-2",
+                title="Second",
+                license="CC0",
+                profile="0.20mm",
+                source="https://example.test/2",
+            ),
+            ModelSearchResult(
+                provider="external",
+                result_id="ext-3",
+                title="Third",
+                license="CC0",
+                profile="0.20mm",
+                source="https://example.test/3",
+            ),
+        )
+
+
+class TypeErrorProvider:
+    def search(self, query, **kwargs):
+        raise TypeError("provider internal type error")
+
+
 def test_mcp_tool_functions_are_callable_without_mcp_sdk():
     assert mcp_server.list_printers(client=FakeClient()) == [{"id": "p1", "name": "A1 mini"}]
     assert mcp_server.get_printer_status("p1", client=FakeClient())["status"] == "idle"
     assert mcp_server.search_archive_or_models("clip", archive_provider=FakeArchive())[0]["title"] == "Cable clip"
     assert mcp_server.search_archive_or_models("clip", archive_provider=FakeArchive())[0]["metadata"] == {"score": 0.9}
+
+
+def test_mcp_printer_tools_degrade_without_client():
+    assert mcp_server.list_printers(client=None) == []
+    assert mcp_server.get_printer_status("printer-1", client=None) == {
+        "id": "printer-1",
+        "status": "unknown",
+    }
+
+
+def test_mcp_slicer_presets_degrade_when_client_is_unsupported():
+    assert mcp_server.list_slicer_presets(client=UnsupportedClient()) == {
+        "printers": [],
+        "processes": [],
+        "filaments": [],
+    }
+
+
+def test_mcp_public_import_status_degrades_when_client_is_unsupported(monkeypatch):
+    monkeypatch.setattr(mcp_server, "_default_bambuddy_client", lambda: None)
+
+    unavailable = {"makerworld": {"status": "unavailable", "can_download": False}}
+    assert mcp_server.get_public_import_status(client=UnsupportedClient()) == unavailable
+    assert mcp_server.get_public_import_status() == unavailable
 
 
 def test_mcp_print_request_creates_pending_approval_without_authorizing_secret():
@@ -207,6 +288,42 @@ def test_mcp_create_print_request_rejects_dict_without_plan_hash_or_session():
         )
 
 
+def test_mcp_create_print_request_rejects_missing_session_when_plan_hash_exists():
+    with pytest.raises(ValueError, match="session_id"):
+        mcp_server.create_print_request(
+            {
+                "job_id": "job-1",
+                "user_id": "u1",
+                "file_hash": "sha256:file",
+                "plan_hash": "sha256:plan",
+                "printer": {"printer_id": "p1"},
+                "material_profile": "PLA / 0.20mm",
+            },
+            approval_service=FakeApproval(),
+        )
+
+
+def test_mcp_create_print_request_rejects_approval_service_without_create_method():
+    with pytest.raises(TypeError, match="create_print_request"):
+        mcp_server.create_print_request(
+            {
+                "job_id": "job-1",
+                "user_id": "u1",
+                "file_hash": "sha256:file",
+                "plan_hash": "sha256:plan",
+                "session_id": "session-1",
+                "printer": {"printer_id": "p1"},
+                "material_profile": "PLA / 0.20mm",
+            },
+            approval_service=UnsupportedClient(),
+        )
+
+
+def test_mcp_get_print_request_status_rejects_service_without_status_method():
+    with pytest.raises(TypeError, match="get_print_request_status"):
+        mcp_server.get_print_request_status("req-1", approval_service=UnsupportedClient())
+
+
 def test_mcp_queue_print_request_uses_scoped_gateway():
     gateway = FakeQueueGateway()
 
@@ -223,6 +340,11 @@ def test_mcp_queue_print_request_rejects_ambiguous_gateway_response():
 
     with pytest.raises(ValueError, match="job_id"):
         mcp_server.queue_print_request("req_test", queue_gateway=AmbiguousGateway())
+
+
+def test_mcp_queue_print_request_rejects_gateway_without_queue_method():
+    with pytest.raises(TypeError, match="queue_print_request"):
+        mcp_server.queue_print_request("req_test", queue_gateway=UnsupportedClient())
 
 
 def test_mcp_registered_tool_wrappers_hide_injected_runtime_objects(monkeypatch):
@@ -269,6 +391,79 @@ def test_mcp_registered_tool_wrappers_hide_injected_runtime_objects(monkeypatch)
         assert forbidden.isdisjoint(signature.parameters)
 
 
+def test_mcp_registered_tool_wrappers_use_runtime_defaults(monkeypatch):
+    captured = []
+    default_client = FakeImportClient()
+    default_approval = FakeApproval()
+    default_gateway = FakeQueueGateway()
+
+    class FakeFastMCP:
+        def __init__(self, name):
+            self.name = name
+
+        def tool(self):
+            def register(func):
+                captured.append(func)
+                return func
+
+            return register
+
+        def run(self):
+            return None
+
+    monkeypatch.setitem(sys.modules, "mcp", types.ModuleType("mcp"))
+    monkeypatch.setitem(sys.modules, "mcp.server", types.ModuleType("mcp.server"))
+    fake_fastmcp = types.ModuleType("mcp.server.fastmcp")
+    fake_fastmcp.FastMCP = FakeFastMCP
+    monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fake_fastmcp)
+    monkeypatch.setattr(mcp_server, "_default_bambuddy_client", lambda: default_client)
+    monkeypatch.setattr(mcp_server, "_default_search_provider", lambda: FakeArchive())
+    monkeypatch.setattr(mcp_server, "_default_approval_service", lambda: default_approval)
+    monkeypatch.setattr(mcp_server, "_default_queue_gateway", lambda: default_gateway)
+
+    mcp_server.main()
+
+    tools = {func.__name__: func for func in captured}
+    assert tools["list_printers"]() == [{"id": "p1", "name": "A1 mini"}]
+    assert tools["get_printer_status"]("p1") == {"id": "p1", "status": "idle"}
+    assert tools["list_slicer_presets"]() == {
+        "printers": [{"id": "p1"}],
+        "processes": [],
+        "filaments": [],
+    }
+    assert tools["search_archive_or_models"]("clip", limit=1)[0]["title"] == "Cable clip"
+    imported = tools["import_public_candidate"](
+        {
+            "provider": "3dsearch_makerworld",
+            "result_id": "https://3dsearch.net/model/headphone-clamp-mount-for-desk-2-versions-mw1760116",
+            "title": "Headphone Clamp Mount for Desk | 2 Versions",
+            "source": "https://3dsearch.net/model/headphone-clamp-mount-for-desk-2-versions-mw1760116",
+        },
+        profile_id=222,
+        folder_id=5,
+    )
+    assert imported["result_id"] == "library:77"
+    assert tools["get_public_import_status"]() == {
+        "makerworld": {"has_cloud_token": True, "can_download": True}
+    }
+    plan = tools["prepare_print_plan"](
+        selected=FakeArchive().search("clip")[0].to_public_dict(),
+        printer={"id": "p1", "name": "A1 mini", "model": "A1", "fresh": True, "provenance": "bambuddy"},
+        material={"type": "PLA", "fresh": True, "provenance": "bambuddy"},
+        profile={"name": "0.20mm", "fresh": True, "provenance": "bambuddy"},
+        user_id="u1",
+        session_id="s1",
+    )
+    assert tools["show_print_plan"](plan)["plan_hash"].startswith("sha256:")
+    assert tools["create_print_request"](plan)["request_id"] == "req_test"
+    assert tools["get_print_request_status"]("req_test") == {
+        "request_id": "req_test",
+        "status": "pending_user_approval",
+    }
+    assert tools["queue_print_request"]("req_test")["job_id"] == "job-1"
+    assert tools["get_job_status"]("job-1") == {"job_id": "job-1", "status": "queued"}
+
+
 def test_default_search_uses_runtime_archive_and_external_providers(monkeypatch):
     monkeypatch.setattr(mcp_server, "_default_bambuddy_client", lambda: FakeArchiveClient())
     monkeypatch.setattr(mcp_server, "_configured_external_search_providers", lambda: [FakeExternalProvider()])
@@ -285,6 +480,17 @@ def test_mcp_default_bambuddy_client_can_use_sandbox_backend(monkeypatch):
     client = mcp_server._default_bambuddy_client()
 
     assert client.list_printers()[0]["sandbox"] is True
+
+
+def test_mcp_default_bambuddy_client_returns_none_when_bambuddy_is_unavailable(monkeypatch):
+    class UnavailableBambuddyClient:
+        def __init__(self):
+            raise mcp_server.BambuddyError("missing config")
+
+    monkeypatch.delenv("PRINT_CONCIERGE_BAMBUDDY_BACKEND", raising=False)
+    monkeypatch.setattr(mcp_server, "BambuddyClient", UnavailableBambuddyClient)
+
+    assert mcp_server._default_bambuddy_client() is None
 
 
 def test_mcp_queue_print_request_respects_prepare_only_capability_mode(
@@ -331,6 +537,20 @@ def test_mcp_search_accepts_limit_for_public_tool_shape():
 
     assert provider.kwargs == {"limit": 1}
     assert [result["title"] for result in results] == ["First"]
+
+
+def test_mcp_search_retries_without_limit_when_provider_rejects_limit_keyword():
+    provider = LimitRejectingProvider()
+
+    results = mcp_server._search_provider(provider, "clip", limit=2)
+
+    assert provider.calls == [("clip", {"limit": 2}), ("clip", {})]
+    assert [result.title for result in results] == ["First", "Second"]
+
+
+def test_mcp_search_reraises_type_error_that_is_not_unexpected_keyword():
+    with pytest.raises(TypeError, match="internal type error"):
+        mcp_server._search_provider(TypeErrorProvider(), "clip", limit=2)
 
 
 def test_mcp_import_public_candidate_returns_trusted_library_result():
@@ -403,4 +623,45 @@ def test_mcp_job_status_degrades_when_client_has_no_job_status_method():
     assert mcp_server.get_job_status("job-1", client=FakeArchiveClient()) == {
         "job_id": "job-1",
         "status": "unknown",
+    }
+
+
+def test_mcp_jsonable_converts_common_containers_and_print_concierge_objects():
+    class PrintConciergeObject:
+        __module__ = "print_concierge.tests"
+
+        def __init__(self):
+            self.items = (
+                ModelSearchResult(
+                    provider="external",
+                    result_id="ext-1",
+                    title="Nested",
+                    license="CC0",
+                    profile="0.20mm",
+                    source="https://example.test/1",
+                ),
+            )
+            self.metadata = {"sizes": [1, 2]}
+
+    assert mcp_server._jsonable({"object": PrintConciergeObject()}) == {
+        "object": {
+            "items": [
+                {
+                    "provider": "external",
+                    "result_id": "ext-1",
+                    "title": "Nested",
+                    "license": "CC0",
+                    "profile": "0.20mm",
+                    "source": "https://example.test/1",
+                    "description": "",
+                    "archive_id": None,
+                    "model_id": None,
+                    "file_name": None,
+                    "file_hash": None,
+                    "warnings": [],
+                    "metadata": {},
+                }
+            ],
+            "metadata": {"sizes": [1, 2]},
+        }
     }

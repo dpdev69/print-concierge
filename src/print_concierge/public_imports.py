@@ -31,6 +31,7 @@ class DownloadedPublicFile:
 Downloader = Callable[[str], DownloadedPublicFile | tuple[bytes, str | None] | bytes]
 
 _QUEUEABLE_FILE_TYPES = {"gcode", "gcode.3mf"}
+_QUEUEABLE_FILENAME_SUFFIXES = (".gcode", ".gcode.3mf")
 _SOURCE_FILE_TYPES = {"3mf", "stl", "step", "stp", "obj", "amf"}
 _SOURCE_FILENAME_SUFFIXES = (".stl", ".step", ".stp", ".obj", ".amf")
 _ALLOWED_SLICE_OPTION_KEYS = {
@@ -200,7 +201,7 @@ def _import_trusted_file_candidate(
         raise TypeError("import_public_candidate requires get_library_file verification")
 
     download_url = _trusted_download_url(result, provider)
-    filename_hint = _metadata_filename(result) or _filename_from_url(download_url)
+    filename_hint = _trusted_download_filename(download_url) or _metadata_filename(result)
     normalized_slice_options = _normalize_slice_options(slice_options)
     if filename_hint and _is_source_filename(filename_hint) and not normalized_slice_options:
         raise PublicImportNeedsSlicingError(
@@ -508,6 +509,8 @@ def _coerce_downloaded(
     value: DownloadedPublicFile | tuple[bytes, str | None] | bytes,
 ) -> DownloadedPublicFile:
     if isinstance(value, DownloadedPublicFile):
+        if not isinstance(value.content, bytes):
+            raise TypeError("public file downloader must return bytes or DownloadedPublicFile")
         return value
     if isinstance(value, bytes):
         return DownloadedPublicFile(content=value)
@@ -700,6 +703,16 @@ def _filename_from_url(url: str) -> str | None:
     path = urlsplit(str(url)).path
     filename = PurePosixPath(unquote(path)).name
     return _safe_filename(filename) if filename else None
+
+
+def _trusted_download_filename(url: str) -> str | None:
+    filename = _filename_from_url(url)
+    if not filename:
+        return None
+    lowered = filename.casefold()
+    if lowered.endswith(_QUEUEABLE_FILENAME_SUFFIXES + _SOURCE_FILENAME_SUFFIXES):
+        return filename
+    return None
 
 
 def _safe_filename(filename: str | None) -> str:
