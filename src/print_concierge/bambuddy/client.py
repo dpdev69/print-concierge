@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote
 
@@ -40,7 +41,9 @@ class BambuddyClient:
         ("GET", "/api/v1/archives/"),
         ("GET", "/api/v1/queue/"),
         ("GET", "/api/v1/makerworld/status"),
+        ("GET", "/api/v1/slicer/presets"),
         ("POST", "/api/v1/makerworld/import"),
+        ("POST", "/api/v1/library/files/"),
         ("POST", "/api/v1/queue/"),
     }
 
@@ -88,6 +91,9 @@ class BambuddyClient:
     def get_makerworld_status(self) -> Any:
         return self._request("GET", "/api/v1/makerworld/status")
 
+    def list_slicer_presets(self) -> Any:
+        return self._request("GET", "/api/v1/slicer/presets")
+
     def import_makerworld_model(
         self,
         *,
@@ -101,6 +107,35 @@ class BambuddyClient:
         if folder_id is not None:
             payload["folder_id"] = int(folder_id)
         return self._request("POST", "/api/v1/makerworld/import", json=payload)
+
+    def upload_library_file(
+        self,
+        *,
+        filename: str,
+        content: bytes,
+        folder_id: int | str | None = None,
+        generate_stl_thumbnails: bool = True,
+    ) -> Any:
+        params: dict[str, Any] = {}
+        if folder_id is not None:
+            params["folder_id"] = int(folder_id)
+        params["generate_stl_thumbnails"] = str(generate_stl_thumbnails).lower()
+        return self._request_files(
+            "POST",
+            "/api/v1/library/files/",
+            files={"file": (filename, content, "application/octet-stream")},
+            params=params,
+        )
+
+    def slice_library_file(self, file_id: str, slice_options: Mapping[str, Any]) -> Any:
+        return self._request(
+            "POST",
+            f"/api/v1/library/files/{self._path_id(file_id)}/slice",
+            json=dict(slice_options),
+        )
+
+    def get_slice_job(self, job_id: str) -> Any:
+        return self._request("GET", f"/api/v1/slice-jobs/{self._path_id(job_id)}")
 
     def get_snapshot(self, printer_id: str) -> Any:
         return self._request(
@@ -165,6 +200,41 @@ class BambuddyClient:
             return None
         return self._redact_response(response.json())
 
+    def _request_files(
+        self,
+        method: str,
+        path: str,
+        *,
+        files: Mapping[str, Any],
+        params: Mapping[str, Any] | None = None,
+    ) -> Any:
+        method = method.upper()
+        self._validate_allowed_path(method, path)
+        url = f"{self.base_url}{path}"
+        headers = {"X-API-Key": self._api_key}
+        try:
+            response = self._client.request(
+                method,
+                url,
+                headers=headers,
+                files=files,
+                params=dict(params or {}),
+            )
+        except httpx.HTTPError as exc:
+            raise BambuddyConnectionError(
+                f"Bambuddy request failed: {exc.__class__.__name__}"
+            ) from exc
+
+        if response.status_code == 404:
+            raise BambuddyNotFoundError(f"Bambuddy resource not found: {path}")
+        if response.status_code >= 400:
+            raise BambuddyError(
+                f"Bambuddy request failed with status {response.status_code}: {path}"
+            )
+        if not response.content:
+            return None
+        return self._redact_response(response.json())
+
     @classmethod
     def _validate_allowed_path(cls, method: str, path: str) -> None:
         if (method, path) in cls._ALLOWED_METHOD_PATHS:
@@ -195,6 +265,15 @@ class BambuddyClient:
             and len(parts) == 5
             and parts[:4] == ["api", "v1", "library", "files"]
         ):
+            return
+        if (
+            method == "POST"
+            and len(parts) == 6
+            and parts[:4] == ["api", "v1", "library", "files"]
+            and parts[5] == "slice"
+        ):
+            return
+        if method == "GET" and len(parts) == 4 and parts[:3] == ["api", "v1", "slice-jobs"]:
             return
         raise BambuddyError(f"Endpoint is not allowlisted: {method} {path}")
 

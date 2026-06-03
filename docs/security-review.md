@@ -64,10 +64,12 @@ Status: mitigated for V1.
 
 Status: mitigated for V1.1.
 
-- `import_public_candidate` currently supports MakerWorld import through Bambuddy only.
+- `import_public_candidate` supports MakerWorld import through Bambuddy, plus Printables/Thingiverse direct-file imports when the candidate includes a trusted provider-domain HTTPS download URL.
 - MakerWorld import verifies the resulting Bambuddy library file by fetching file metadata and requiring a file hash.
+- Printables/Thingiverse imports upload only trusted direct file URLs to Bambuddy, then fetch the resulting library metadata and require a file hash plus a sliced `gcode`/`gcode.3mf` file type before preparation.
+- STL/source geometry requires explicit Bambuddy slicer preset refs. The source upload is sliced through Bambuddy, the slice job is polled, and only the verified sliced output becomes queueable.
 - Imported library file identity is carried into the print plan as `library_file_id` and remains subject to the same confirmation-gated queue path.
-- Unsupported public providers remain discovery-only until a trusted adapter exists.
+- Unsupported public providers and page-only public search results remain discovery-only until a trusted adapter provides provenance and file identity.
 
 ### 4. Raw Bambuddy access
 
@@ -101,7 +103,9 @@ rg -n --hidden --glob '!.git/**' --glob '!.env' --glob '!dist/**' --glob '!.venv
 
 - Public search uses third-party indexed pages and should be treated as discovery only, not proof of printability.
 - MakerWorld import depends on Bambuddy's MakerWorld integration and available Bambu Cloud download credentials.
-- Non-MakerWorld public providers remain discovery-only until provenance, hash, license, and slicer/profile verification adapters are implemented.
+- Printables/Thingiverse adapters require trusted direct file URLs; ordinary page-only search hits remain discovery-only until a search/import gateway resolves files safely.
+- STL/source-only public files require explicit slicer/profile refs and successful Bambuddy slice-job verification before they can be queueable.
+- Other public providers remain discovery-only until provenance, hash, license, and slicer/profile verification adapters are implemented.
 - The default runtime state is local SQLite. Multi-user hosted deployments should move confirmation state to a transactional service with operator observability.
 - Least-privilege Bambuddy tokens depend on Bambuddy deployment configuration.
 - Pause/cancel controls are not exposed in V1; operators should use Bambuddy directly for emergency control.

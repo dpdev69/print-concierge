@@ -28,7 +28,7 @@ Example MCP client shape:
 ## Tool Order
 
 1. Search: `search_archive_or_models(query, limit)`. This searches Bambuddy archives plus enabled public/model-search providers; public results are discovery only until imported/verified into a trusted archive.
-2. Import if needed: call `get_public_import_status()` first, then `import_public_candidate(selected, profile_id, folder_id)` for supported MakerWorld candidates, then use the returned `bambuddy_library` result.
+2. Import if needed: call `get_public_import_status()` before MakerWorld imports, then `import_public_candidate(selected, profile_id, folder_id)` for supported public candidates. MakerWorld uses Bambuddy import; Printables/Thingiverse require a trusted direct file URL. For source files, call `list_slicer_presets()` and pass explicit `slice_options`; use the returned verified `bambuddy_library` result.
 3. Inspect printer: `list_printers()` and `get_printer_status(printer_id)`.
 4. Prepare: `prepare_print_plan(selected, printer, material, profile, user_id, session_id)`.
 5. Confirm: `request_confirmation(plan)` through the host user channel.

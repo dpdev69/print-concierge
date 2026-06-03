@@ -43,7 +43,7 @@ Example client configuration:
 
 Keep Bambuddy credentials in the runtime environment, with least privilege. Do not put secret values in skill files, agent memory, logs, or chat.
 
-Public model-site search is enabled by default through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other model platforms. Those public hits are discovery candidates. Use `get_public_import_status` and `import_public_candidate` for supported MakerWorld candidates before preparation; other public sites need their own trusted import adapter before they are queueable. The queueing path still requires a Bambuddy archive/imported trusted item plus backend confirmation. For archive-only/local-only mode:
+Public model-site search is enabled by default through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other model platforms. Those public hits are discovery candidates until imported/verified. Use `get_public_import_status` before MakerWorld imports, then `import_public_candidate` for supported MakerWorld candidates. `import_public_candidate` also supports Printables/Thingiverse candidates that include a trusted direct file URL; source files must use explicit preset refs from `list_slicer_presets` through `slice_options` before they can become queueable. The queueing path still requires a Bambuddy archive/imported trusted item plus backend confirmation. For archive-only/local-only mode:
 
 ```sh
 export PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=false

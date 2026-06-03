@@ -26,6 +26,12 @@ def get_printer_status(printer_id: str, *, client: Any = None) -> dict[str, Any]
     return {"id": printer_id, "status": "unknown"}
 
 
+def list_slicer_presets(*, client: Any = None) -> dict[str, Any]:
+    if client and hasattr(client, "list_slicer_presets"):
+        return dict(client.list_slicer_presets())
+    return {"printers": [], "processes": [], "filaments": []}
+
+
 def search_archive_or_models(
     query: str,
     *,
@@ -42,6 +48,8 @@ def import_public_candidate(
     *,
     profile_id: int | None = None,
     folder_id: int | None = None,
+    slice_options: Mapping[str, Any] | None = None,
+    slice_wait_seconds: float | None = None,
     client: Any = None,
 ) -> dict[str, Any]:
     imported = import_public_model_candidate(
@@ -49,6 +57,8 @@ def import_public_candidate(
         client=client or _default_bambuddy_client(),
         profile_id=profile_id,
         folder_id=folder_id,
+        slice_options=slice_options,
+        slice_wait_seconds=slice_wait_seconds,
     )
     return _jsonable(imported)
 
@@ -157,6 +167,9 @@ def main() -> None:
     def get_printer_status(printer_id: str) -> dict[str, Any]:
         return globals()["get_printer_status"](printer_id, client=_default_bambuddy_client())
 
+    def list_slicer_presets() -> dict[str, Any]:
+        return globals()["list_slicer_presets"](client=_default_bambuddy_client())
+
     def search_archive_or_models(query: str, limit: int = 5) -> list[dict[str, Any]]:
         return globals()["search_archive_or_models"](query, limit=limit)
 
@@ -164,11 +177,15 @@ def main() -> None:
         selected: dict[str, Any],
         profile_id: int | None = None,
         folder_id: int | None = None,
+        slice_options: dict[str, Any] | None = None,
+        slice_wait_seconds: float | None = None,
     ) -> dict[str, Any]:
         return globals()["import_public_candidate"](
             selected,
             profile_id=profile_id,
             folder_id=folder_id,
+            slice_options=slice_options,
+            slice_wait_seconds=slice_wait_seconds,
             client=_default_bambuddy_client(),
         )
 
@@ -218,6 +235,7 @@ def main() -> None:
     for tool in (
         list_printers,
         get_printer_status,
+        list_slicer_presets,
         search_archive_or_models,
         import_public_candidate,
         get_public_import_status,

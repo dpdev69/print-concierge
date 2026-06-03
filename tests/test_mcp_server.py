@@ -78,6 +78,9 @@ class FakeImportClient:
     def get_makerworld_status(self):
         return {"has_cloud_token": True, "can_download": True}
 
+    def list_slicer_presets(self):
+        return {"printers": [{"id": "p1"}], "processes": [], "filaments": []}
+
     def import_makerworld_model(self, *, model_id, profile_id=None, folder_id=None):
         return {
             "library_file_id": 77,
@@ -286,9 +289,51 @@ def test_mcp_import_public_candidate_returns_trusted_library_result():
     assert result["file_hash"] == "sha256:imported-file"
 
 
+def test_mcp_import_public_candidate_accepts_slice_options(monkeypatch):
+    captured = {}
+
+    def fake_import(selected, **kwargs):
+        captured["kwargs"] = kwargs
+        return ModelSearchResult(
+            provider="bambuddy_library",
+            result_id="library:99",
+            title=selected["title"],
+            file_hash="sha256:sliced-file",
+            metadata={"library_file_id": "99", "verified": True},
+        )
+
+    monkeypatch.setattr(mcp_server, "import_public_model_candidate", fake_import)
+
+    result = mcp_server.import_public_candidate(
+        {
+            "provider": "3dsearch_printables",
+            "result_id": "printables:1",
+            "title": "Headphone stand",
+            "metadata": {"origin_site": "Printables"},
+        },
+        client=FakeImportClient(),
+        slice_options={"printer_preset": {"source": "standard", "id": "p"}},
+        slice_wait_seconds=0,
+    )
+
+    assert result["result_id"] == "library:99"
+    assert captured["kwargs"]["slice_options"] == {
+        "printer_preset": {"source": "standard", "id": "p"}
+    }
+    assert captured["kwargs"]["slice_wait_seconds"] == 0
+
+
 def test_mcp_public_import_status_reports_makerworld_download_readiness():
     assert mcp_server.get_public_import_status(client=FakeImportClient()) == {
         "makerworld": {"has_cloud_token": True, "can_download": True}
+    }
+
+
+def test_mcp_lists_slicer_presets_when_client_supports_them():
+    assert mcp_server.list_slicer_presets(client=FakeImportClient()) == {
+        "printers": [{"id": "p1"}],
+        "processes": [],
+        "filaments": [],
     }
 
 

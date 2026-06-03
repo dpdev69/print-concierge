@@ -76,4 +76,4 @@
 
 ### V1 boundary note
 
-Public search remains enabled for discovery. Physical queueing is intentionally limited to Bambuddy archive/imported trusted items with backend-enforced confirmation. V1.1 adds `import_public_candidate` for supported MakerWorld results; other public providers remain discovery-only until trusted import adapters exist.
+Public search remains enabled for discovery. Physical queueing is intentionally limited to Bambuddy archive/imported trusted items with backend-enforced confirmation. V1.1 adds `import_public_candidate` for supported MakerWorld results and trusted direct-file Printables/Thingiverse results; source files require explicit preset refs and verified Bambuddy slicing, while page-only public hits remain discovery-only until file-resolution adapters exist.

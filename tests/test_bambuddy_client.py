@@ -226,6 +226,93 @@ def test_import_makerworld_model_and_fetch_library_file_use_allowlisted_paths(mo
     ]
 
 
+def test_upload_library_file_uses_allowlisted_multipart_endpoint(monkeypatch):
+    seen = {}
+
+    def handler(request):
+        body = request.read()
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["query"] = str(request.url.query, "ascii")
+        seen["api_key"] = request.headers.get("X-API-Key")
+        seen["content_type"] = request.headers.get("Content-Type")
+        seen["body"] = body
+        return httpx.Response(
+            200,
+            json={
+                "id": 88,
+                "filename": "Desk Headphone Holder.gcode.3mf",
+                "file_type": "gcode.3mf",
+                "file_size": len(body),
+                "thumbnail_path": None,
+            },
+        )
+
+    client = _client(handler, monkeypatch)
+
+    uploaded = client.upload_library_file(
+        filename="Desk Headphone Holder.gcode.3mf",
+        content=b"print-bytes",
+        folder_id=9,
+    )
+
+    assert uploaded["id"] == 88
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/library/files/"
+    assert seen["query"] == "folder_id=9&generate_stl_thumbnails=true"
+    assert seen["api_key"] == TEST_API_KEY
+    assert seen["content_type"].startswith("multipart/form-data; boundary=")
+    assert b'name="file"; filename="Desk Headphone Holder.gcode.3mf"' in seen["body"]
+    assert b"print-bytes" in seen["body"]
+
+
+def test_slice_library_file_and_get_slice_job_use_allowlisted_paths(monkeypatch):
+    seen = []
+
+    def handler(request):
+        body = request.read()
+        seen.append((request.method, request.url.path, json.loads(body or b"{}")))
+        if request.url.path == "/api/v1/library/files/88/slice":
+            return httpx.Response(202, json={"job_id": 123})
+        return httpx.Response(200, json={"id": 123, "status": "completed", "library_file_id": 99})
+
+    client = _client(handler, monkeypatch)
+    slice_options = {
+        "printer_preset": {"source": "standard", "id": "Bambu Lab A1 mini 0.4 nozzle"},
+        "process_preset": {"source": "standard", "id": "0.20mm Standard @BBL A1M"},
+        "filament_preset": {"source": "standard", "id": "Generic PLA @BBL A1"},
+        "export_3mf": True,
+    }
+
+    assert client.slice_library_file("88", slice_options) == {"job_id": 123}
+    assert client.get_slice_job("123") == {
+        "id": 123,
+        "status": "completed",
+        "library_file_id": 99,
+    }
+    assert seen == [
+        ("POST", "/api/v1/library/files/88/slice", slice_options),
+        ("GET", "/api/v1/slice-jobs/123", {}),
+    ]
+
+
+def test_list_slicer_presets_uses_allowlisted_path(monkeypatch):
+    paths = []
+
+    def handler(request):
+        paths.append(request.url.path)
+        return httpx.Response(200, json={"printers": [], "processes": [], "filaments": []})
+
+    client = _client(handler, monkeypatch)
+
+    assert client.list_slicer_presets() == {
+        "printers": [],
+        "processes": [],
+        "filaments": [],
+    }
+    assert paths == ["/api/v1/slicer/presets"]
+
+
 def test_get_job_status_reads_queue_item(monkeypatch):
     paths = []
 

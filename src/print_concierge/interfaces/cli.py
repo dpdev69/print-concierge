@@ -45,6 +45,13 @@ def main(
             if client
             else {"id": args.printer_id, "status": "unknown"},
         )
+    elif args.command == "slicer-presets":
+        _emit(
+            out,
+            client.list_slicer_presets()
+            if client and hasattr(client, "list_slicer_presets")
+            else {"printers": [], "processes": [], "filaments": []},
+        )
     elif args.command == "archives":
         _emit(
             out,
@@ -88,6 +95,9 @@ def main(
         _emit(out, plan)
     elif args.command == "import-public":
         selected = json.loads(args.candidate_json)
+        slice_options = (
+            json.loads(args.slice_options_json) if args.slice_options_json else None
+        )
         _emit(
             out,
             import_public_candidate(
@@ -95,6 +105,8 @@ def main(
                 client=client,
                 profile_id=args.profile_id,
                 folder_id=args.folder_id,
+                slice_options=slice_options,
+                slice_wait_seconds=args.slice_wait_seconds,
             ),
         )
     elif args.command == "import-status":
@@ -130,6 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("printers")
     status = subparsers.add_parser("status")
     status.add_argument("printer_id")
+    subparsers.add_parser("slicer-presets")
     subparsers.add_parser("archives")
     prepare = subparsers.add_parser("prepare")
     prepare.add_argument("--archive-id", required=True)
@@ -150,6 +163,8 @@ def build_parser() -> argparse.ArgumentParser:
     import_public.add_argument("--candidate-json", required=True)
     import_public.add_argument("--profile-id", type=int)
     import_public.add_argument("--folder-id", type=int)
+    import_public.add_argument("--slice-options-json")
+    import_public.add_argument("--slice-wait-seconds", type=float)
     subparsers.add_parser("import-status")
     confirm = subparsers.add_parser("confirm")
     confirm.add_argument("plan_id")

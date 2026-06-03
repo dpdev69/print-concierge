@@ -16,6 +16,9 @@ class FakeClient:
     def get_makerworld_status(self):
         return {"has_cloud_token": True, "can_download": True}
 
+    def list_slicer_presets(self):
+        return {"printers": [{"id": "p1"}], "processes": [], "filaments": []}
+
     def import_makerworld_model(self, *, model_id, profile_id=None, folder_id=None):
         return {
             "library_file_id": 77,
@@ -158,12 +161,75 @@ def test_cli_imports_public_candidate_for_verification(capsys):
     assert output["file_hash"] == "sha256:imported-file"
 
 
+def test_cli_accepts_slice_options_for_public_import(monkeypatch, capsys):
+    captured = {}
+
+    def fake_import_public_candidate(selected, **kwargs):
+        captured["selected"] = selected
+        captured["kwargs"] = kwargs
+        from print_concierge.search.base import ModelSearchResult
+
+        return ModelSearchResult(
+            provider="bambuddy_library",
+            result_id="library:99",
+            title=selected["title"],
+            file_hash="sha256:sliced-file",
+            metadata={"library_file_id": "99", "verified": True},
+        )
+
+    monkeypatch.setattr(
+        "print_concierge.interfaces.cli.import_public_candidate",
+        fake_import_public_candidate,
+    )
+    candidate_json = json.dumps(
+        {
+            "provider": "3dsearch_printables",
+            "result_id": "printables:1",
+            "title": "Headphone stand",
+            "metadata": {"origin_site": "Printables"},
+        }
+    )
+    slice_options_json = json.dumps(
+        {"printer_preset": {"source": "standard", "id": "Bambu Lab A1 mini"}}
+    )
+
+    exit_code = main(
+        [
+            "import-public",
+            "--candidate-json",
+            candidate_json,
+            "--slice-options-json",
+            slice_options_json,
+            "--slice-wait-seconds",
+            "0",
+        ],
+        client=FakeClient(),
+        archive_provider=FakeArchive(),
+    )
+
+    output = parse(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output["result_id"] == "library:99"
+    assert captured["kwargs"]["slice_options"] == {
+        "printer_preset": {"source": "standard", "id": "Bambu Lab A1 mini"}
+    }
+    assert captured["kwargs"]["slice_wait_seconds"] == 0
+
+
 def test_cli_reports_public_import_status(capsys):
     exit_code = main(["import-status"], client=FakeClient(), archive_provider=FakeArchive())
 
     output = parse(capsys.readouterr().out)
     assert exit_code == 0
     assert output == {"makerworld": {"can_download": True, "has_cloud_token": True}}
+
+
+def test_cli_lists_slicer_presets(capsys):
+    exit_code = main(["slicer-presets"], client=FakeClient(), archive_provider=FakeArchive())
+
+    output = parse(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output == {"filaments": [], "printers": [{"id": "p1"}], "processes": []}
 
 
 def test_cli_prepares_imported_selected_json_without_queueing(capsys):
