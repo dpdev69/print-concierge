@@ -51,15 +51,15 @@ def normalize_result(provider: str, raw: Mapping[str, Any]) -> ModelSearchResult
     """Normalize provider data while keeping provider text as inert strings."""
 
     result_id = _first_text(raw, "result_id", "id", "model_id", "archive_id") or "unknown"
-    title = _first_text(raw, "title", "name", "file_name") or "Untitled model"
+    title = _first_text(raw, "title", "print_name", "name", "file_name", "filename") or "Untitled model"
     description = _first_text(raw, "description", "summary", "notes") or ""
     license_name = _first_text(raw, "license", "license_name")
     profile = _profile_text(raw)
-    source = _first_text(raw, "source", "source_url", "url", "origin")
+    source = _first_text(raw, "source", "source_url", "url", "origin", "makerworld_url", "external_url")
     archive_id = _first_text(raw, "archive_id", "archiveId")
     model_id = _first_text(raw, "model_id", "modelId")
     file_name = _file_text(raw, "name") or _first_text(raw, "file_name", "filename")
-    file_hash = _file_text(raw, "sha256") or _file_text(raw, "hash") or _first_text(raw, "file_hash", "sha256", "hash")
+    file_hash = _file_text(raw, "sha256") or _file_text(raw, "hash") or _first_text(raw, "file_hash", "content_hash", "sha256", "hash")
 
     warnings = []
     if not license_name:
@@ -101,6 +101,9 @@ def _profile_text(raw: Mapping[str, Any]) -> Optional[str]:
         return str(nested) if nested else None
     if value:
         return str(value)
+    layer_height = raw.get("layer_height")
+    if layer_height is not None:
+        return f"{layer_height}mm"
     return None
 
 

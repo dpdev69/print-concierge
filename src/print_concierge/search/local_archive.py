@@ -20,7 +20,19 @@ class LocalArchiveSearchProvider(SearchProvider):
         for item in self._archives:
             haystack = " ".join(
                 str(item.get(key, ""))
-                for key in ("title", "name", "description", "archive_id", "archiveId", "id", "model_id", "modelId")
+                for key in (
+                    "title",
+                    "print_name",
+                    "name",
+                    "filename",
+                    "file_name",
+                    "description",
+                    "archive_id",
+                    "archiveId",
+                    "id",
+                    "model_id",
+                    "modelId",
+                )
             ).casefold()
             if not needle or needle in haystack:
                 results.append(_normalize_archive_item(item))
@@ -47,7 +59,9 @@ def _normalize_archive_item(item: Mapping[str, Any]) -> ModelSearchResult:
         raw.setdefault("result_id", f"{archive_id}:{model_id}")
     elif archive_id:
         raw.setdefault("result_id", str(archive_id))
-    raw.setdefault("source", f"bambuddy://archives/{archive_id}" if archive_id else None)
+    source_keys = ("source", "source_url", "url", "origin", "makerworld_url", "external_url")
+    if archive_id and not any(raw.get(key) for key in source_keys):
+        raw["source"] = f"bambuddy://archives/{archive_id}"
     return normalize_result(LocalArchiveSearchProvider.provider_name, raw)
 
 

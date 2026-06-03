@@ -25,9 +25,9 @@ class BambuddyAmbiguousActionError(BambuddyError):
 
 class BambuddyClient:
     _ALLOWED_METHOD_PATHS = {
-        ("GET", "/api/printers"),
-        ("GET", "/api/archives"),
-        ("POST", "/api/queue"),
+        ("GET", "/api/v1/printers/"),
+        ("GET", "/api/v1/archives/"),
+        ("POST", "/api/v1/queue/"),
     }
 
     def __init__(
@@ -52,31 +52,31 @@ class BambuddyClient:
         return f"BambuddyClient(base_url={self.base_url!r}, api_key=<redacted>)"
 
     def list_printers(self) -> Any:
-        return self._request("GET", "/api/printers")
+        return self._request("GET", "/api/v1/printers/")
 
     def get_printer(self, printer_id: str) -> Any:
-        return self._request("GET", f"/api/printers/{self._path_id(printer_id)}")
+        return self._request("GET", f"/api/v1/printers/{self._path_id(printer_id)}")
 
     def get_printer_status(self, printer_id: str) -> Any:
         return self._request(
-            "GET", f"/api/printers/{self._path_id(printer_id)}/status"
+            "GET", f"/api/v1/printers/{self._path_id(printer_id)}/status"
         )
 
     def list_archives(self) -> Any:
-        return self._request("GET", "/api/archives")
+        return self._request("GET", "/api/v1/archives/")
 
     def get_archive(self, archive_id: str) -> Any:
-        return self._request("GET", f"/api/archives/{self._path_id(archive_id)}")
+        return self._request("GET", f"/api/v1/archives/{self._path_id(archive_id)}")
 
     def get_snapshot(self, printer_id: str) -> Any:
         return self._request(
-            "GET", f"/api/printers/{self._path_id(printer_id)}/snapshot"
+            "GET", f"/api/v1/printers/{self._path_id(printer_id)}/camera/snapshot"
         )
 
     def queue_print(self, plan: dict[str, Any]) -> Any:
         if plan.get("_print_concierge_confirmed") is not True:
             raise BambuddyError("queue_print requires a confirmed Print Concierge gateway payload.")
-        result = self._request("POST", "/api/queue", json=plan)
+        result = self._request("POST", "/api/v1/queue/", json=plan)
         if not isinstance(result, dict) or not result.get("job_id"):
             raise BambuddyAmbiguousActionError(
                 "Queue response did not include a job id; print state is ambiguous."
@@ -112,16 +112,23 @@ class BambuddyClient:
         if (method, path) in cls._ALLOWED_METHOD_PATHS:
             return
         parts = path.strip("/").split("/")
-        if method == "GET" and len(parts) == 3 and parts[:2] == ["api", "printers"]:
+        if method == "GET" and len(parts) == 4 and parts[:3] == ["api", "v1", "printers"]:
             return
         if (
             method == "GET"
-            and len(parts) == 4
-            and parts[:2] == ["api", "printers"]
-            and parts[3] in {"status", "snapshot"}
+            and len(parts) == 5
+            and parts[:3] == ["api", "v1", "printers"]
+            and parts[4] == "status"
         ):
             return
-        if method == "GET" and len(parts) == 3 and parts[:2] == ["api", "archives"]:
+        if (
+            method == "GET"
+            and len(parts) == 6
+            and parts[:3] == ["api", "v1", "printers"]
+            and parts[4:] == ["camera", "snapshot"]
+        ):
+            return
+        if method == "GET" and len(parts) == 4 and parts[:3] == ["api", "v1", "archives"]:
             return
         raise BambuddyError(f"Endpoint is not allowlisted: {method} {path}")
 

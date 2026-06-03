@@ -85,3 +85,30 @@ def test_local_archive_select_accepts_bambuddy_id_and_camel_case_ids():
     assert selected.archive_id == "archive-2"
     assert selected.model_id == "model-2"
     assert selected.result_id == "archive-2:model-2"
+
+
+def test_local_archive_provider_handles_real_bambuddy_archive_shape():
+    provider = LocalArchiveSearchProvider(
+        [
+            {
+                "id": 8,
+                "filename": "universal_cable_holder_V2.gcode.3mf",
+                "print_name": "universal cable holder V2",
+                "content_hash": "028f667eddb840728ea3563ab8c0f67ff7d4592c9f84904cbf3fcf0716460cfa",
+                "filament_type": "PLA",
+                "layer_height": 0.2,
+                "makerworld_url": "https://makerworld.com/en/models/1282635",
+            }
+        ]
+    )
+
+    results = provider.search("cable holder")
+    selected = provider.select(archive_id="8")
+
+    assert results == (selected,)
+    assert selected.archive_id == "8"
+    assert selected.title == "universal cable holder V2"
+    assert selected.file_name == "universal_cable_holder_V2.gcode.3mf"
+    assert selected.file_hash == "028f667eddb840728ea3563ab8c0f67ff7d4592c9f84904cbf3fcf0716460cfa"
+    assert selected.profile == "0.2mm"
+    assert selected.source == "https://makerworld.com/en/models/1282635"

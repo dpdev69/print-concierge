@@ -29,7 +29,7 @@ def test_env_config_headers_and_list_printers_path(monkeypatch):
 
     assert client.list_printers() == [{"id": "p1"}]
     assert seen == {
-        "url": "https://printer.local/api/printers",
+        "url": "https://printer.local/api/v1/printers/",
         "api_key": "super-secret-key",
     }
     assert "super-secret-key" not in repr(client)
@@ -51,11 +51,11 @@ def test_known_read_methods_use_expected_paths(monkeypatch):
     client.get_snapshot("p1")
 
     assert paths == [
-        "/api/printers/p1",
-        "/api/printers/p1/status",
-        "/api/archives",
-        "/api/archives/a1",
-        "/api/printers/p1/snapshot",
+        "/api/v1/printers/p1",
+        "/api/v1/printers/p1/status",
+        "/api/v1/archives/",
+        "/api/v1/archives/a1",
+        "/api/v1/printers/p1/camera/snapshot",
     ]
 
 
@@ -72,7 +72,7 @@ def test_queue_print_posts_plan_and_returns_job_id(monkeypatch):
 
     assert client.queue_print({"archive_id": "a1", "_print_concierge_confirmed": True}) == {"job_id": "job-1"}
     assert seen["method"] == "POST"
-    assert seen["path"] == "/api/queue"
+    assert seen["path"] == "/api/v1/queue/"
     assert b"a1" in seen["json"]
 
 
@@ -119,11 +119,11 @@ def test_endpoint_allowlist_blocks_unknown_paths(monkeypatch):
     client = _client(lambda request: httpx.Response(200, json={}), monkeypatch)
 
     with pytest.raises(BambuddyError):
-        client._request("GET", "/api/direct-start")
+        client._request("GET", "/api/v1/direct-start")
 
 
 def test_endpoint_allowlist_blocks_unknown_printer_subpaths(monkeypatch):
     client = _client(lambda request: httpx.Response(200, json={}), monkeypatch)
 
     with pytest.raises(BambuddyError):
-        client._request("GET", "/api/printers/p1/direct-start")
+        client._request("GET", "/api/v1/printers/p1/direct-start")
