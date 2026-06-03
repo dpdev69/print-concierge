@@ -43,7 +43,7 @@ Example client configuration:
 
 Keep Bambuddy credentials in the runtime environment, with least privilege. Do not put secret values in skill files, agent memory, logs, or chat.
 
-Public model-site search is enabled by default through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other model platforms. For archive-only/local-only mode:
+Public model-site search is enabled by default through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other model platforms. Those public hits are discovery candidates. The queueing path still requires a Bambuddy archive/imported trusted item plus backend confirmation. For archive-only/local-only mode:
 
 ```sh
 export PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=false

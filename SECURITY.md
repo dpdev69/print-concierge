@@ -18,7 +18,7 @@ The LLM is never a trust boundary. Prompts are helpful instructions, not safety 
 4. Model pages, model descriptions, comments, filenames, and source metadata are untrusted input.
 5. Bambuddy credentials, printer access codes, serial numbers, camera URLs, and tokens must not be exposed to chat or logs.
 6. Default deployment should be local-only or private-network-only.
-7. Pause/cancel/status must be easy and available after print start.
+7. Status must be easy from chat; emergency pause/cancel must remain available in Bambuddy.
 
 ---
 
@@ -35,7 +35,7 @@ Mitigations:
 - Treat all retrieved model content as untrusted data.
 - Extract structured fields only where possible.
 - Do not allow retrieved text to call tools or alter system policy.
-- Backend requires confirmation token before print start.
+- Backend requires a confirmation token before queueing.
 - Include tests with malicious model descriptions.
 
 ### 2. Unauthorized printer control
@@ -73,12 +73,12 @@ Bad jobs can waste filament, damage printer components, run too long, or create 
 
 Mitigations:
 
-- Confirm printer/material/profile/time before print.
+- Confirm printer/material/profile/time before queueing.
 - Risk scoring for high-temp, long-duration, remote, unknown-source, or raw-G-code jobs.
 - Optional camera snapshot before start.
 - Optional plate-clear check if Bambuddy supports it.
 - Configurable policy: block overnight/high-temp/remote jobs unless allowed.
-- Easy pause/cancel from chat.
+- Easy status checks from chat. Emergency pause/cancel remains in Bambuddy for V1.
 
 ### 5. Credential leakage
 
@@ -102,7 +102,7 @@ Mitigations:
 
 - Use a restricted high-level safety wrapper for normal users.
 - Do not expose all Bambuddy endpoints directly to the conversational agent in production mode.
-- Dangerous operations are only available through `start_confirmed_print(job_id, token)`.
+- Dangerous operations are only available through `queue_confirmed_print(confirmation_token)`.
 - Consider direct-mode only for developers with explicit opt-in.
 
 ### 7. Public internet exposure
@@ -155,12 +155,12 @@ A pending plan should include:
 - Not guessable.
 - Logged by hash or partial token only.
 
-### Start command
+### Queue command
 
-The only function that can start printing should look conceptually like:
+The only function that can queue a print should look conceptually like:
 
 ```text
-start_confirmed_print(job_id, confirmation_token)
+queue_confirmed_print(confirmation_token)
 ```
 
 It must verify:
@@ -171,7 +171,7 @@ It must verify:
 - token belongs to requesting user/chat;
 - token matches current immutable job plan;
 - job passes policy checks;
-- Bambuddy call succeeds.
+- Bambuddy call succeeds and returns an unambiguous queue id.
 
 ---
 
@@ -179,17 +179,14 @@ It must verify:
 
 Recommended default tools:
 
-- `search_models(query, printer_profile)`
-- `get_model_details(model_id)`
+- `search_archive_or_models(query, limit)`
 - `list_printers()`
 - `get_printer_status(printer_id)`
-- `get_snapshot(printer_id)`
-- `prepare_print(model_id, printer_id, material, profile)`
-- `show_print_plan(job_id)`
-- `request_confirmation(job_id)`
-- `start_confirmed_print(job_id, confirmation_token)`
-- `pause_print(printer_id)`
-- `cancel_print(printer_id)`
+- `prepare_print_plan(selected, printer, material, profile, user_id, session_id)`
+- `show_print_plan(plan)`
+- `request_confirmation(plan)`
+- `queue_confirmed_print(confirmation_token)`
+- `get_job_status(job_id)`
 
 Avoid exposing raw low-level API calls in the normal chat flow.
 
@@ -206,8 +203,8 @@ Log every sensitive event:
 - print plan creation;
 - confirmation token creation;
 - confirmation attempt;
-- print start;
-- pause/cancel;
+- print queue submission;
+- queue/job status checks;
 - errors/failures.
 
 Do not log secrets.

@@ -20,11 +20,11 @@
 - Test: `tests/test_search_providers.py`
 - Test: `tests/test_cli.py`
 
-- [ ] Write failing tests for an external HTTP JSON provider, composite search dedupe/limits, and `print-concierge search`.
-- [ ] Implement `HttpJsonSearchProvider`, `ConfiguredExternalSearchProvider`, and named `MakerWorldSearchProvider` / `PrintablesSearchProvider` adapters using configurable URL templates.
-- [ ] Implement `CompositeSearchProvider` to merge providers, keep inert provider text, dedupe by `(provider, result_id)` and cap results.
-- [ ] Wire CLI `search QUERY [--limit N]` to local archives plus configured external providers.
-- [ ] Run `uv run pytest tests/test_search_providers.py tests/test_cli.py`.
+- [x] Write failing tests for an external HTTP JSON provider, composite search dedupe/limits, and `print-concierge search`.
+- [x] Implement `HttpJsonSearchProvider`, `ConfiguredExternalSearchProvider`, and named `MakerWorldSearchProvider` / `PrintablesSearchProvider` adapters using configurable URL templates.
+- [x] Implement `CompositeSearchProvider` to merge providers, keep inert provider text, dedupe by `(provider, result_id)` and cap results.
+- [x] Wire CLI `search QUERY [--limit N]` to local archives plus configured external providers.
+- [x] Run `uv run pytest tests/test_search_providers.py tests/test_cli.py`.
 
 ### Task 2: MCP console script and default runtime clients
 
@@ -34,11 +34,11 @@
 - Test: `tests/test_mcp_server.py`
 - Test: `tests/test_scaffold.py`
 
-- [ ] Write failing tests that `print-concierge-mcp` exists, tool wrappers do not expose injected `client` parameters, and default search uses live-configured providers without requiring user-supplied internal objects.
-- [ ] Add `print-concierge-mcp = "print_concierge.interfaces.mcp_server:main"`.
-- [ ] Add MCP runtime bootstrap helpers for Bambuddy client, local archive provider, configured external providers, and confirmation-aware queue gateway placeholders.
-- [ ] Keep direct Python helper functions injectable for tests, but register public MCP wrapper functions without private injection parameters.
-- [ ] Run `uv run pytest tests/test_mcp_server.py tests/test_scaffold.py`.
+- [x] Write failing tests that `print-concierge-mcp` exists, tool wrappers do not expose injected `client` parameters, and default search uses live-configured providers without requiring user-supplied internal objects.
+- [x] Add `print-concierge-mcp = "print_concierge.interfaces.mcp_server:main"`.
+- [x] Add MCP runtime bootstrap helpers for Bambuddy client, local archive provider, configured external providers, and confirmation-aware queue gateway placeholders.
+- [x] Keep direct Python helper functions injectable for tests, but register public MCP wrapper functions without private injection parameters.
+- [x] Run `uv run pytest tests/test_mcp_server.py tests/test_scaffold.py`.
 
 ### Task 3: Installable skill packages
 
@@ -56,11 +56,11 @@
 - Create: `docs/installable-skills.md`
 - Test: `tests/test_skill_packages.py`
 
-- [ ] Write failing tests that required skill/package files exist and contain core safety instructions, MCP command examples, and no secrets.
-- [ ] Create the canonical concise skill under `skills/print-concierge/` with frontmatter and progressive-disclosure references.
-- [ ] Add host-specific packaging shims for Claude, Codex, Hermes, and OpenClaw.
-- [ ] Document local install and registry-ready paths in `docs/installable-skills.md`.
-- [ ] Run `uv run pytest tests/test_skill_packages.py`.
+- [x] Write failing tests that required skill/package files exist and contain core safety instructions, MCP command examples, and no secrets.
+- [x] Create the canonical concise skill under `skills/print-concierge/` with frontmatter and progressive-disclosure references.
+- [x] Add host-specific packaging shims for Claude, Codex, Hermes, and OpenClaw.
+- [x] Document local install and registry-ready paths in `docs/installable-skills.md`.
+- [x] Run `uv run pytest tests/test_skill_packages.py`.
 
 ### Task 4: Integration verification and release hygiene
 
@@ -68,8 +68,12 @@
 - Modify: `README.md`
 - Optional Modify: `docs/claude-setup.md`, `docs/hermes-setup.md`
 
-- [ ] Update README smoke tests to include `search` and MCP server startup.
-- [ ] Run full test suite: `uv run pytest`.
-- [ ] Run build: `uv build`.
-- [ ] Run secret scan excluding ignored `.env`.
-- [ ] Commit all changes locally with a clear message.
+- [x] Update README smoke tests to include `search` and MCP server startup.
+- [x] Run full test suite: `uv run pytest`.
+- [x] Run build: `uv build`.
+- [x] Run secret scan excluding ignored `.env`.
+- [x] Commit all changes locally with a clear message.
+
+### V1 boundary note
+
+Public search remains enabled for discovery. Physical queueing is intentionally limited to Bambuddy archive/imported trusted items with backend-enforced confirmation. Automatic public model download/import is a future feature after provenance, hash, license, and slicer/profile verification are implemented.

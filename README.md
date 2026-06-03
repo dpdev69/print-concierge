@@ -13,14 +13,15 @@ A secure, open-source, human-in-the-loop 3D printing assistant for Bambu Lab pri
 Print Concierge is not "AI controls your 3D printer." It is a safety-first print workflow:
 
 1. User asks for an object in Telegram/Discord/Hermes/Claude/etc.
-2. The agent searches model sources and/or the user's Bambuddy archive.
-3. The agent returns a small shortlist with thumbnails and printability notes.
+2. The agent searches Bambuddy archives and enabled public indexes such as MakerWorld/Printables via 3DSEARCH.
+3. The agent returns a small shortlist with provenance and printability notes.
 4. The user selects one.
-5. The backend prepares a print plan.
-6. The backend displays the exact job details and generates a short-lived confirmation token.
-7. The user confirms.
-8. Only then does the backend queue/start the print through Bambuddy.
-9. The assistant monitors progress and supports pause/cancel/status/snapshot.
+5. If the selected model is from a public index, it must first be imported into Bambuddy or another trusted archive with provenance, hash, license, and profile data.
+6. The backend prepares a print plan for the Bambuddy archive/imported trusted item.
+7. The backend displays the exact job details and generates a short-lived confirmation token.
+8. The user confirms.
+9. Only then does the backend queue the trusted archive item through Bambuddy, manual-start by default.
+10. The assistant monitors status. Emergency pause/cancel stays in Bambuddy for V1.
 
 ## Priority order
 
@@ -83,6 +84,10 @@ The existing `bambuddy-mcp` server is a control/API layer. Print Concierge is th
 - `ARCHITECTURE.md` — proposed system layers and components.
 - `MARKETING.md` — launch audiences, messaging, and demo strategy.
 - `IMPLEMENTATION_PLAN.md` — bite-sized build plan for the initial MVP.
+- `docs/setup.md` — local CLI/MCP setup instructions.
+- `docs/installable-skills.md` — Claude, Codex, Hermes, and OpenClaw skill packaging.
+- `docs/security-review.md` — current security review and residual risks.
+- `docs/github-launch.md` — promotional copy for publishing the open-source project.
 
 ## Local smoke test
 
@@ -100,9 +105,9 @@ uv run print-concierge prepare --archive-id 8 --printer-id 1 --material PLA --pr
 uv run print-concierge-mcp
 ```
 
-These commands are read-only except `prepare`, which only builds a confirmation-required plan. Queueing a print still requires the confirmation-aware gateway.
+These commands are read-only except `prepare`, which only builds a confirmation-required plan for a Bambuddy archive/imported trusted item. Queueing a print requires `request_confirmation` followed by `queue_confirmed_print` through the confirmation-aware gateway.
 
-By default, `search` combines Bambuddy archives with public model-site search through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other 3D model platforms. Disable public web search for archive-only mode:
+By default, `search` combines Bambuddy archives with public model-site search through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other 3D model platforms. Public search results are discovery candidates only; they are not physically queueable until imported into Bambuddy or another trusted archive with backend-verified provenance and file identity. Disable public web search only when you want archive-only mode:
 
 ```sh
 export PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=false

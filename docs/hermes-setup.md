@@ -11,10 +11,11 @@ Configuration:
 
 Expected flow:
 
-1. Search archive/model options.
-2. User selects one archive/model.
-3. Prepare an immutable print plan.
-4. Request confirmation through Hermes or the configured confirmation service.
-5. Queue only the confirmed print.
+1. Search Bambuddy archive items plus public discovery candidates.
+2. User selects one candidate.
+3. Public-index candidates are imported/verified into Bambuddy or another trusted archive before preparation.
+4. Prepare an immutable print plan for the trusted item.
+5. Request confirmation through Hermes or the configured confirmation service.
+6. Queue only the confirmed trusted archive/imported item.
 
 V0/V1 excludes direct starts and unrestricted Bambuddy control.

@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -73,10 +75,94 @@ def test_queue_print_posts_plan_and_returns_job_id(monkeypatch):
 
     client = _client(handler, monkeypatch)
 
-    assert client.queue_print({"archive_id": "a1", "_print_concierge_confirmed": True}) == {"job_id": "job-1"}
+    assert client.queue_print(
+        {
+            "archive_id": "1",
+            "printer_id": "2",
+            "_print_concierge_confirmed": True,
+        }
+    ) == {"job_id": "job-1", "queue_item": {"job_id": "job-1"}, "status": "queued"}
     assert seen["method"] == "POST"
     assert seen["path"] == "/api/v1/queue/"
-    assert b"a1" in seen["json"]
+    assert json.loads(seen["json"])["archive_id"] == 1
+    assert json.loads(seen["json"])["printer_id"] == 2
+
+
+def test_queue_print_maps_confirmed_archive_plan_to_bambuddy_queue_payload(monkeypatch):
+    seen = {}
+
+    def handler(request):
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["payload"] = json.loads(request.read())
+        return httpx.Response(
+            200,
+            json={
+                "id": 42,
+                "status": "pending",
+                "archive_id": 8,
+                "printer_id": 1,
+                "manual_start": True,
+            },
+        )
+
+    client = _client(handler, monkeypatch)
+
+    result = client.queue_print(
+        {
+            "_print_concierge_confirmed": True,
+            "job_id": "plan-1",
+            "plan_hash": "sha256:plan",
+            "material_profile": "PLA / 0.2mm",
+            "printer": {"printer_id": "1"},
+            "model": {"metadata": {"archive_id": "8"}},
+        }
+    )
+
+    assert result == {
+        "job_id": "42",
+        "status": "pending",
+        "queue_item": {
+            "id": 42,
+            "status": "pending",
+            "archive_id": 8,
+            "printer_id": 1,
+            "manual_start": True,
+        },
+    }
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v1/queue/"
+    assert seen["payload"] == {
+        "archive_id": 8,
+        "bed_levelling": True,
+        "flow_cali": False,
+        "gcode_injection": False,
+        "layer_inspect": False,
+        "manual_start": True,
+        "printer_id": 1,
+        "quantity": 1,
+        "required_filament_types": ["PLA"],
+        "timelapse": False,
+        "use_ams": True,
+        "vibration_cali": True,
+    }
+
+
+def test_get_job_status_reads_queue_item(monkeypatch):
+    paths = []
+
+    def handler(request):
+        paths.append(request.url.path)
+        return httpx.Response(200, json={"id": 42, "status": "printing"})
+
+    client = _client(handler, monkeypatch)
+
+    assert client.get_job_status("42") == {
+        "job_id": "42",
+        "status": "printing",
+        "queue_item": {"id": 42, "status": "printing"},
+    }
+    assert paths == ["/api/v1/queue/42"]
 
 
 def test_queue_print_requires_internal_confirmation_marker(monkeypatch):
@@ -93,7 +179,13 @@ def test_ambiguous_queue_response_fails_without_assuming_success(monkeypatch):
     client = _client(handler, monkeypatch)
 
     with pytest.raises(BambuddyAmbiguousActionError):
-        client.queue_print({"archive_id": "a1", "_print_concierge_confirmed": True})
+        client.queue_print(
+            {
+                "archive_id": "1",
+                "printer_id": "2",
+                "_print_concierge_confirmed": True,
+            }
+        )
 
 
 def test_errors_do_not_expose_api_key(monkeypatch):

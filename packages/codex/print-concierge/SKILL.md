@@ -7,7 +7,7 @@ description: Codex shim for the canonical Print Concierge skill at ../../../skil
 
 Canonical skill: `../../../skills/print-concierge/SKILL.md`.
 
-Use when a user asks Codex to find, prepare, confirm, queue, monitor, pause, or cancel a 3D print. Prefer the MCP server:
+Use when a user asks Codex to search public or archived 3D model candidates, prepare a print plan, queue a confirmed Bambuddy print, or check print status. Prefer the MCP server:
 
 ```sh
 uv run print-concierge-mcp

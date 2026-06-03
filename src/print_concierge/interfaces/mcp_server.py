@@ -5,6 +5,7 @@ from typing import Any, Mapping
 from print_concierge import planner as print_planner
 from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan
+from print_concierge.runtime import RuntimeConfirmationService, RuntimeQueueGateway, RuntimeState
 from print_concierge.search.base import ModelSearchResult
 from print_concierge.search.composite import CompositeSearchProvider
 from print_concierge.search.external import (
@@ -67,7 +68,9 @@ def show_print_plan(plan: PrintPlan | Mapping[str, Any]) -> dict[str, Any]:
     return _jsonable(plan)
 
 
-def request_confirmation(plan: PrintPlan | Mapping[str, Any], *, confirmation_service: Any) -> dict[str, Any]:
+def request_confirmation(
+    plan: PrintPlan | Mapping[str, Any], *, confirmation_service: Any = None
+) -> dict[str, Any]:
     payload = _jsonable(plan)
     plan_id = payload.get("job_id") or payload.get("plan_id")
     session_id = str(
@@ -79,10 +82,11 @@ def request_confirmation(plan: PrintPlan | Mapping[str, Any], *, confirmation_se
         raise ValueError("plan_hash is required to request confirmation")
     if not payload.get("session_id") and not payload.get("slicer_settings", {}).get("session_id"):
         raise ValueError("session_id is required to request confirmation")
-    if hasattr(confirmation_service, "request_confirmation"):
-        result = confirmation_service.request_confirmation(payload)
-    elif hasattr(confirmation_service, "create_challenge"):
-        result = confirmation_service.create_challenge(
+    service = confirmation_service or _default_confirmation_service()
+    if hasattr(service, "request_confirmation"):
+        result = service.request_confirmation(payload)
+    elif hasattr(service, "create_challenge"):
+        result = service.create_challenge(
             user_id=str(payload["user_id"]),
             chat_id=session_id,
             job_id=str(plan_id),
@@ -230,24 +234,15 @@ def _search_provider(provider: Any, query: str, *, limit: int | None) -> list[An
 
 
 def _default_confirmation_service() -> Any:
-    return _MissingConfirmationService()
+    return RuntimeConfirmationService(_default_runtime_state())
 
 
 def _default_queue_gateway() -> Any:
-    return _ConfirmationAwareQueueGateway(_default_bambuddy_client())
+    return RuntimeQueueGateway(_default_runtime_state(), _default_bambuddy_client())
 
 
-class _MissingConfirmationService:
-    def request_confirmation(self, plan: Mapping[str, Any]) -> dict[str, Any]:
-        raise TypeError("MCP confirmation service is not configured")
-
-
-class _ConfirmationAwareQueueGateway:
-    def __init__(self, client: Any) -> None:
-        self._client = client
-
-    def queue_confirmed_print(self, confirmation_token: str) -> dict[str, Any]:
-        raise TypeError("MCP confirmation-aware queue gateway is not configured")
+def _default_runtime_state() -> RuntimeState:
+    return RuntimeState()
 
 
 def _jsonable(value: Any) -> Any:

@@ -38,6 +38,7 @@ class BambuddyClient:
     _ALLOWED_METHOD_PATHS = {
         ("GET", "/api/v1/printers/"),
         ("GET", "/api/v1/archives/"),
+        ("GET", "/api/v1/queue/"),
         ("POST", "/api/v1/queue/"),
     }
 
@@ -84,15 +85,39 @@ class BambuddyClient:
             "GET", f"/api/v1/printers/{self._path_id(printer_id)}/camera/snapshot"
         )
 
+    def list_queue(self) -> Any:
+        return self._request("GET", "/api/v1/queue/")
+
+    def get_queue_item(self, item_id: str) -> Any:
+        return self._request("GET", f"/api/v1/queue/{self._path_id(item_id)}")
+
+    def get_job_status(self, job_id: str) -> dict[str, Any]:
+        item_id = str(job_id).removeprefix("queue-")
+        item = self.get_queue_item(item_id)
+        return {
+            "job_id": str(item.get("id", item_id)) if isinstance(item, dict) else item_id,
+            "status": str(item.get("status", "unknown")) if isinstance(item, dict) else "unknown",
+            "queue_item": item,
+        }
+
     def queue_print(self, plan: dict[str, Any]) -> Any:
         if plan.get("_print_concierge_confirmed") is not True:
             raise BambuddyError("queue_print requires a confirmed Print Concierge gateway payload.")
-        result = self._request("POST", "/api/v1/queue/", json=plan)
-        if not isinstance(result, dict) or not result.get("job_id"):
+        result = self._request("POST", "/api/v1/queue/", json=self._queue_payload(plan))
+        if not isinstance(result, dict):
             raise BambuddyAmbiguousActionError(
                 "Queue response did not include a job id; print state is ambiguous."
             )
-        return result
+        queue_id = result.get("job_id") or result.get("id")
+        if not queue_id:
+            raise BambuddyAmbiguousActionError(
+                "Queue response did not include a job id; print state is ambiguous."
+            )
+        return {
+            "job_id": str(queue_id),
+            "status": result.get("status", "queued"),
+            "queue_item": result,
+        }
 
     def _request(
         self, method: str, path: str, *, json: dict[str, Any] | None = None
@@ -141,11 +166,45 @@ class BambuddyClient:
             return
         if method == "GET" and len(parts) == 4 and parts[:3] == ["api", "v1", "archives"]:
             return
+        if method == "GET" and len(parts) == 4 and parts[:3] == ["api", "v1", "queue"]:
+            return
         raise BambuddyError(f"Endpoint is not allowlisted: {method} {path}")
 
     @staticmethod
     def _path_id(value: str) -> str:
         return quote(str(value), safe="")
+
+    @classmethod
+    def _queue_payload(cls, plan: dict[str, Any]) -> dict[str, Any]:
+        metadata = plan.get("model", {}).get("metadata", {})
+        archive_id = metadata.get("archive_id") or plan.get("archive_id")
+        if archive_id is None:
+            raise BambuddyError("confirmed queue payload requires a Bambuddy archive_id")
+        printer_id = plan.get("printer", {}).get("printer_id") or plan.get("printer_id")
+        if printer_id is None:
+            raise BambuddyError("confirmed queue payload requires a printer_id")
+        material = str(plan.get("material_profile", "")).split("/", 1)[0].strip()
+        payload = {
+            "archive_id": int(archive_id),
+            "bed_levelling": True,
+            "flow_cali": False,
+            "gcode_injection": False,
+            "layer_inspect": False,
+            "manual_start": cls._manual_start_enabled(),
+            "printer_id": int(printer_id),
+            "quantity": 1,
+            "timelapse": False,
+            "use_ams": True,
+            "vibration_cali": True,
+        }
+        if material:
+            payload["required_filament_types"] = [material]
+        return payload
+
+    @staticmethod
+    def _manual_start_enabled() -> bool:
+        value = os.environ.get("PRINT_CONCIERGE_BAMBUDDY_MANUAL_START", "true").lower()
+        return value not in {"0", "false", "no", "off"}
 
     @classmethod
     def _redact_response(cls, value: Any) -> Any:
