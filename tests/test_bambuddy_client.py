@@ -9,9 +9,12 @@ from print_concierge.bambuddy.client import (
 )
 
 
+TEST_API_KEY = "fake-unit-test-key"
+
+
 def _client(handler, monkeypatch):
     monkeypatch.setenv("BAMBUDDY_BASE_URL", "https://printer.local")
-    monkeypatch.setenv("BAMBUDDY_API_KEY", "super-secret-key")
+    monkeypatch.setenv("BAMBUDDY_API_KEY", TEST_API_KEY)
     transport = httpx.MockTransport(handler)
     http_client = httpx.Client(transport=transport)
     return BambuddyClient(http_client=http_client)
@@ -30,9 +33,9 @@ def test_env_config_headers_and_list_printers_path(monkeypatch):
     assert client.list_printers() == [{"id": "p1"}]
     assert seen == {
         "url": "https://printer.local/api/v1/printers/",
-        "api_key": "super-secret-key",
+        "api_key": TEST_API_KEY,
     }
-    assert "super-secret-key" not in repr(client)
+    assert TEST_API_KEY not in repr(client)
 
 
 def test_known_read_methods_use_expected_paths(monkeypatch):
@@ -102,7 +105,7 @@ def test_errors_do_not_expose_api_key(monkeypatch):
     with pytest.raises(BambuddyError) as exc:
         client.list_printers()
 
-    assert "super-secret-key" not in str(exc.value)
+    assert TEST_API_KEY not in str(exc.value)
 
 
 def test_responses_redact_sensitive_printer_fields(monkeypatch):
