@@ -83,3 +83,19 @@ The existing `bambuddy-mcp` server is a control/API layer. Print Concierge is th
 - `ARCHITECTURE.md` — proposed system layers and components.
 - `MARKETING.md` — launch audiences, messaging, and demo strategy.
 - `IMPLEMENTATION_PLAN.md` — bite-sized build plan for the initial MVP.
+
+## Local smoke test
+
+Create a local `.env` from `.env.example`, then load it before running the CLI:
+
+```sh
+set -a
+source .env
+set +a
+uv run print-concierge printers
+uv run print-concierge archives
+uv run print-concierge status 1
+uv run print-concierge prepare --archive-id 8 --printer-id 1 --material PLA --profile 0.2mm
+```
+
+These commands are read-only except `prepare`, which only builds a confirmation-required plan. Queueing a print still requires the confirmation-aware gateway.

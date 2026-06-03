@@ -105,6 +105,32 @@ def test_errors_do_not_expose_api_key(monkeypatch):
     assert "super-secret-key" not in str(exc.value)
 
 
+def test_responses_redact_sensitive_printer_fields(monkeypatch):
+    def handler(request):
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": "p1",
+                    "access_code": "12345678",
+                    "serial_number": "ABC123",
+                    "nested": {"token": "should-not-leak", "name": "kept"},
+                }
+            ],
+        )
+
+    client = _client(handler, monkeypatch)
+
+    assert client.list_printers() == [
+        {
+            "id": "p1",
+            "access_code": "<redacted>",
+            "serial_number": "<redacted>",
+            "nested": {"token": "<redacted>", "name": "kept"},
+        }
+    ]
+
+
 def test_not_found_raises_specific_error(monkeypatch):
     def handler(request):
         return httpx.Response(404, json={"error": "missing"})

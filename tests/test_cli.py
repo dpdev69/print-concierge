@@ -10,6 +10,9 @@ class FakeClient:
     def get_printer_status(self, printer_id):
         return {"id": printer_id, "status": "idle"}
 
+    def list_archives(self):
+        return [{"archive_id": "a1", "title": "Cable clip"}]
+
 
 class FakeArchive:
     def list_archives(self):
@@ -42,6 +45,19 @@ def test_cli_lists_printers(capsys):
 
     assert exit_code == 0
     assert parse(capsys.readouterr().out) == [{"id": "p1", "name": "A1 mini"}]
+
+
+def test_cli_uses_env_configured_bambuddy_client_by_default(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "print_concierge.interfaces.cli.BambuddyClient", lambda: FakeClient()
+    )
+
+    exit_code = main(["archives"])
+
+    assert exit_code == 0
+    assert parse(capsys.readouterr().out) == [
+        {"archive_id": "a1", "title": "Cable clip"}
+    ]
 
 
 def test_cli_prepares_plan_without_queueing(capsys):

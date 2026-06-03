@@ -24,6 +24,17 @@ class BambuddyAmbiguousActionError(BambuddyError):
 
 
 class BambuddyClient:
+    _SENSITIVE_RESPONSE_KEYS = {
+        "access_code",
+        "accesscode",
+        "api_key",
+        "apikey",
+        "password",
+        "secret",
+        "serial_number",
+        "serialnumber",
+        "token",
+    }
     _ALLOWED_METHOD_PATHS = {
         ("GET", "/api/v1/printers/"),
         ("GET", "/api/v1/archives/"),
@@ -105,7 +116,7 @@ class BambuddyClient:
             )
         if not response.content:
             return None
-        return response.json()
+        return self._redact_response(response.json())
 
     @classmethod
     def _validate_allowed_path(cls, method: str, path: str) -> None:
@@ -135,3 +146,16 @@ class BambuddyClient:
     @staticmethod
     def _path_id(value: str) -> str:
         return quote(str(value), safe="")
+
+    @classmethod
+    def _redact_response(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return [cls._redact_response(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: "<redacted>"
+                if str(key).lower() in cls._SENSITIVE_RESPONSE_KEYS
+                else cls._redact_response(item)
+                for key, item in value.items()
+            }
+        return value

@@ -6,6 +6,7 @@ import sys
 from dataclasses import is_dataclass
 from typing import Any, Sequence
 
+from print_concierge.bambuddy import BambuddyClient, BambuddyError
 from print_concierge.planner import PrintPlan, prepare_print_plan
 from print_concierge.search.local_archive import LocalArchiveSearchProvider
 
@@ -21,14 +22,25 @@ def main(
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     out = output or sys.stdout
-    archive_provider = archive_provider or LocalArchiveSearchProvider()
+    client = client if client is not None else _default_client()
+    archive_provider = archive_provider or _default_archive_provider(client)
 
     if args.command == "printers":
         _emit(out, client.list_printers() if client else [])
     elif args.command == "status":
-        _emit(out, client.get_printer_status(args.printer_id) if client else {"id": args.printer_id, "status": "unknown"})
+        _emit(
+            out,
+            client.get_printer_status(args.printer_id)
+            if client
+            else {"id": args.printer_id, "status": "unknown"},
+        )
     elif args.command == "archives":
-        _emit(out, archive_provider.list_archives() if hasattr(archive_provider, "list_archives") else [])
+        _emit(
+            out,
+            archive_provider.list_archives()
+            if hasattr(archive_provider, "list_archives")
+            else [],
+        )
     elif args.command == "prepare":
         selected = archive_provider.select(args.archive_id, args.model_id)
         plan = prepare_print_plan(
@@ -85,6 +97,19 @@ def build_parser() -> argparse.ArgumentParser:
     queue = subparsers.add_parser("queue")
     queue.add_argument("confirmation_token")
     return parser
+
+
+def _default_client() -> Any:
+    try:
+        return BambuddyClient()
+    except BambuddyError:
+        return None
+
+
+def _default_archive_provider(client: Any) -> LocalArchiveSearchProvider:
+    if client is None or not hasattr(client, "list_archives"):
+        return LocalArchiveSearchProvider()
+    return LocalArchiveSearchProvider(client.list_archives())
 
 
 def _emit(output: Any, payload: Any) -> None:
