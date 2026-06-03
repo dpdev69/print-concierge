@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
+
+
+CAPABILITY_MODES = frozenset({"search_only", "prepare_only", "queue_enabled", "admin"})
 
 
 @dataclass(frozen=True)
@@ -19,6 +23,36 @@ class PolicyConfig:
     allowed_chats: frozenset[str] | set[str] | None = None
     allowed_printers: frozenset[str] | set[str] | None = None
     require_snapshot_for_remote: bool = False
+    capability_mode: str = "queue_enabled"
+
+    def __post_init__(self) -> None:
+        if self.capability_mode not in CAPABILITY_MODES:
+            raise ValueError(
+                "capability_mode must be one of: "
+                + ", ".join(sorted(CAPABILITY_MODES))
+            )
+
+    @classmethod
+    def from_env(cls) -> "PolicyConfig":
+        return cls(
+            capability_mode=os.environ.get(
+                "PRINT_CONCIERGE_CAPABILITY_MODE", "queue_enabled"
+            ).strip()
+            or "queue_enabled",
+            allowed_users=_csv_env("PRINT_CONCIERGE_ALLOWED_USERS"),
+            allowed_chats=_csv_env("PRINT_CONCIERGE_ALLOWED_CHATS"),
+            allowed_printers=_csv_env("PRINT_CONCIERGE_ALLOWED_PRINTERS"),
+            deny_long_duration_jobs=_bool_env(
+                "PRINT_CONCIERGE_DENY_LONG_DURATION_JOBS", default=False
+            ),
+            allow_raw_gcode=_bool_env("PRINT_CONCIERGE_ALLOW_RAW_GCODE", default=False),
+            require_snapshot_for_remote=_bool_env(
+                "PRINT_CONCIERGE_REQUIRE_SNAPSHOT_FOR_REMOTE", default=False
+            ),
+            max_duration_minutes=_int_env(
+                "PRINT_CONCIERGE_MAX_DURATION_MINUTES", default=8 * 60
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -60,6 +94,15 @@ class PolicyEngine:
             "printer", printer_id, self.config.allowed_printers, reasons, risk_flags
         )
 
+        if (
+            action in {"queue_print", "start_print"}
+            and self.config.capability_mode in {"search_only", "prepare_only"}
+        ):
+            reasons.append(
+                f"Capability mode {self.config.capability_mode!r} disables queueing."
+            )
+            risk_flags.append("queue_disabled_by_capability_mode")
+
         if action in self.config.confirmation_required_actions and not confirmation_id:
             reasons.append(f"Action {action!r} requires explicit confirmation.")
             risk_flags.append("missing_confirmation")
@@ -96,6 +139,7 @@ class PolicyEngine:
             "user_not_allowed",
             "chat_not_allowed",
             "printer_not_allowed",
+            "queue_disabled_by_capability_mode",
             "snapshot_required",
         }
         if self.config.deny_long_duration_jobs:
@@ -150,3 +194,27 @@ class PolicyEngine:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+
+def _csv_env(name: str) -> frozenset[str] | None:
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    items = frozenset(item.strip() for item in value.split(",") if item.strip())
+    return items or None
+
+
+def _bool_env(name: str, *, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _int_env(name: str, *, default: int | None) -> int | None:
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    if value.strip().lower() in {"none", "off", "false"}:
+        return None
+    return int(value)

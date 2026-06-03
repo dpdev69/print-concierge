@@ -103,3 +103,32 @@ def test_remote_print_can_require_snapshot():
 
     assert decision.allowed is False
     assert "snapshot_required" in decision.risk_flags
+
+
+def test_capability_mode_can_disable_queue_actions():
+    engine = PolicyEngine(PolicyConfig(capability_mode="prepare_only"))
+
+    decision = engine.evaluate(
+        action="queue_print",
+        plan={"archive_id": "arc-1", "material": "PLA", "estimated_minutes": 45},
+        confirmation_id="req_123",
+    )
+
+    assert decision.allowed is False
+    assert "queue_disabled_by_capability_mode" in decision.risk_flags
+
+
+def test_policy_config_reads_capability_mode_and_allowlists_from_env(monkeypatch):
+    monkeypatch.setenv("PRINT_CONCIERGE_CAPABILITY_MODE", "queue_enabled")
+    monkeypatch.setenv("PRINT_CONCIERGE_ALLOWED_USERS", "alice,bob")
+    monkeypatch.setenv("PRINT_CONCIERGE_ALLOWED_CHATS", "chat-1")
+    monkeypatch.setenv("PRINT_CONCIERGE_ALLOWED_PRINTERS", "p1,p2")
+    monkeypatch.setenv("PRINT_CONCIERGE_DENY_LONG_DURATION_JOBS", "true")
+
+    config = PolicyConfig.from_env()
+
+    assert config.capability_mode == "queue_enabled"
+    assert config.allowed_users == frozenset({"alice", "bob"})
+    assert config.allowed_chats == frozenset({"chat-1"})
+    assert config.allowed_printers == frozenset({"p1", "p2"})
+    assert config.deny_long_duration_jobs is True

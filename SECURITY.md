@@ -10,6 +10,12 @@ The system is designed around this rule:
 
 The LLM is never a trust boundary. Prompts are helpful instructions, not safety enforcement.
 
+## V1.3 hardening note
+
+V1.3 hardening incorporated skeptic feedback by tightening the agent-facing promise instead of expanding printer control. The model-visible MCP surface has one sensitive scoped tool, `queue_print_request(request_id)`, and no raw Bambuddy queue/start/pause/cancel tools. That queue path is policy-gated, audited, capability-mode controlled, and manual-start by default.
+
+MCP hosts should mark `queue_print_request(request_id)` as sensitive and require per-call confirmation. If a host cannot force per-call confirmation, run Print Concierge in `search_only` or `prepare_only` capability mode for normal browsing, or reserve `queue_enabled` for a supervised operator profile.
+
 ## Non-negotiable safety rules
 
 1. No print starts without explicit human confirmation.
@@ -19,6 +25,7 @@ The LLM is never a trust boundary. Prompts are helpful instructions, not safety 
 5. Bambuddy credentials, printer access codes, serial numbers, camera URLs, and tokens must not be exposed to chat or logs.
 6. Default deployment should be local-only or private-network-only.
 7. Status must be easy from chat; emergency pause/cancel must remain available in Bambuddy.
+8. MCP hosts must treat the queue tool as sensitive printer-control authority, even though it is scoped to a request id.
 
 ---
 
@@ -51,6 +58,7 @@ Mitigations:
 - Rate-limit sensitive actions.
 - Audit log all sensitive actions.
 - Prefer least-privilege/scoped Bambuddy keys if available.
+- Use `PRINT_CONCIERGE_CAPABILITY_MODE=search_only` or `prepare_only` for browsing/demo profiles that should never queue work.
 
 ### 3. Malicious or unsafe print files
 
@@ -102,7 +110,8 @@ Mitigations:
 
 - Use a restricted high-level safety wrapper for normal users.
 - Do not expose all Bambuddy endpoints directly to the conversational agent in production mode.
-- Raw queue/start operations are not exposed; the only queue path is `queue_print_request(request_id)` for an existing Print Concierge request.
+- Raw queue/start/pause/cancel operations are not exposed; the only queue path is `queue_print_request(request_id)` for an existing Print Concierge request.
+- Do not expose raw Bambuddy pause/cancel tools through the production agent profile; emergency controls remain in Bambuddy for the operator.
 - Consider direct-mode only for developers with explicit opt-in.
 
 ### 7. Public internet exposure
@@ -183,6 +192,13 @@ It must verify:
 
 This design does not claim to protect against a malicious local client that is allowed to call `queue_print_request`. Treat that tool as printer-control authority in MCP hosts, prefer per-call user approval prompts when available, and keep broad Bambuddy tools out of the same production profile.
 
+Capability modes should be used as host-level blast-radius controls:
+
+- `search_only`: queue actions are denied; pair it with a discovery-only host tool allowlist.
+- `prepare_only`: queue actions are denied; pair it with search/import/status/plan tools.
+- `queue_enabled`: default supervised workflow with request-bound queueing.
+- `admin`: reserved for local administrative use, not broad model exposure.
+
 ---
 
 ## Safe high-level tool surface
@@ -233,6 +249,7 @@ For v1:
 - request-bound queueing required for every print;
 - no raw G-code from arbitrary sources by default;
 - direct access to broad Bambuddy MCP endpoints disabled for normal users.
+- `queue_print_request(request_id)` marked sensitive in the MCP host with per-call confirmation.
 
 ---
 

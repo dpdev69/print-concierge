@@ -14,7 +14,7 @@ It is not raw AI control of a printer. It is an inspectable, open-source safety 
 
 ## Short pitch
 
-Print Concierge lets Claude, Codex, Hermes, OpenClaw, and other MCP clients help with 3D printing without giving them unchecked printer control. It searches Bambuddy archives and public model indexes like MakerWorld and Printables through 3DSEARCH, imports supported public candidates with `import_public_candidate`, prepares immutable print plans only for archive/imported trusted items, and queues only a specific stored request id. It does not expose raw Bambuddy queue/start tools.
+Print Concierge lets Claude, Codex, Hermes, OpenClaw, and other MCP clients help with 3D printing without giving them unchecked printer control. It searches Bambuddy archives and public model indexes like MakerWorld and Printables through 3DSEARCH, imports supported public candidates with `import_public_candidate`, prepares immutable print plans only for archive/imported trusted items, and queues only a specific stored request id. It exposes one sensitive scoped tool, `queue_print_request(request_id)`, and no raw Bambuddy queue/start/pause/cancel tools.
 
 ## Taglines
 
@@ -40,7 +40,7 @@ The basic flow:
 5. Print Concierge creates a pending request.
 6. You confirm, and the agent queues that exact request id.
 
-The key design choice: the agent never gets raw "start printer" or broad Bambuddy queue tools. All clients go through the same MCP workflow: search, prepare, create request, queue that request id, poll status. Bambuddy manual-start is on by default.
+The key design choice: the agent never gets raw "start printer" or broad Bambuddy queue tools. All clients go through the same MCP workflow: search, prepare, create request, queue that request id, poll status. Queueing is policy-gated, audited, capability-mode controlled, and manual-start by default. MCP hosts should mark the queue tool sensitive and require per-call confirmation.
 
 This is built for the Bambuddy crowd, self-hosters, makerspaces, and anyone who wants the convenience of AI print help without handing a physical machine to a chatbot.
 
@@ -50,9 +50,9 @@ Repo: https://github.com/dpdev69/print-concierge
 
 I made a small open-source project for safer AI-assisted 3D printing.
 
-It is called Print Concierge. It sits between Claude/Codex/Hermes/OpenClaw-style agents and Bambuddy. The agent can search model options, import/verify supported public candidates, prepare print plans, create pending print requests, and queue a specific request id. It cannot call raw Bambuddy queue/start tools. Request queueing is bound to the exact file hash, printer, material/profile, user/session, and plan hash.
+It is called Print Concierge. It sits between Claude/Codex/Hermes/OpenClaw-style agents and Bambuddy. The agent can search model options, import/verify supported public candidates, prepare print plans, create pending print requests, and queue a specific request id. It cannot call raw Bambuddy queue/start/pause/cancel tools. Request queueing is bound to the exact file hash, printer, material/profile, user/session, and plan hash.
 
-Current V1.2:
+Current V1.3 hardening:
 
 - Bambuddy archive search
 - public model search via 3DSEARCH across MakerWorld, Printables, Thingiverse, etc.
@@ -61,6 +61,8 @@ Current V1.2:
 - CLI and MCP server
 - installable skill packages for Claude, Codex, Hermes, and OpenClaw
 - local SQLite approval state
+- one sensitive scoped `queue_print_request(request_id)` tool
+- policy-gated, audited, capability-mode controlled queueing
 - manual-start queue behavior by default
 
 I built it because I wanted the magic of "find me the right thing and set up the print" without giving an agent unchecked control of a physical machine.

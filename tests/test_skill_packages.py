@@ -88,6 +88,13 @@ def test_skill_packages_contain_core_safety_instructions():
         "bambuddy credentials",
         "get_public_import_status",
         "import_public_candidate",
+        "one sensitive scoped tool",
+        "raw bambuddy queue/start/pause/cancel",
+        "per-call confirmation",
+        "capability-mode controlled",
+        "manual-start by default",
+        "policy-gated",
+        "audited",
     ]
 
     for phrase in required_phrases:

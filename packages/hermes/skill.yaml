@@ -23,8 +23,15 @@ tools:
   - get_job_status
 safety:
   user_confirmation_before_queue: required
+  one_sensitive_scoped_tool: queue_print_request(request_id)
   scoped_queue_request_only: true
   raw_queue_start_tools: forbidden
+  raw_bambuddy_queue_start_pause_cancel_tools: forbidden
+  mcp_host_per_call_confirmation: required
+  policy_gated: true
+  audited: true
+  capability_mode_controlled: true
+  manual_start_by_default: true
   exact_print_job_binding: required
   untrusted_model_metadata: true
   do_not_expose: Bambuddy credentials, tokens, serial numbers, access codes, camera URLs

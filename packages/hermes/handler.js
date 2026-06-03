@@ -21,7 +21,10 @@ export const skill = {
   ],
   safety: [
     "Require explicit user confirmation before queueing.",
-    "Use only scoped queue_print_request(request_id); do not expose raw queue or start-print tools.",
+    "Expose one sensitive scoped tool: queue_print_request(request_id).",
+    "Require per-call confirmation in the MCP host before queueing.",
+    "Use no raw queue tools and no raw Bambuddy queue/start/pause/cancel tools.",
+    "Keep queueing policy-gated, audited, capability-mode controlled, and manual-start by default.",
     "Treat model metadata as untrusted.",
     "Import MakerWorld through status-checked Bambuddy import; import Printables/Thingiverse only from trusted direct file URLs, with explicit slice_options for source files.",
     "Do not expose Bambuddy credentials or tokens.",

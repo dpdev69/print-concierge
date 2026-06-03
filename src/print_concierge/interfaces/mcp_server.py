@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Mapping
 
 from print_concierge import planner as print_planner
-from print_concierge.bambuddy import BambuddyClient, BambuddyError
+from print_concierge.audit import AuditLogger
+from print_concierge.bambuddy import BambuddyClient, BambuddyError, SandboxBambuddyClient
 from print_concierge.planner import PrintPlan
 from print_concierge.public_imports import import_public_candidate as import_public_model_candidate
 from print_concierge.runtime import RuntimeApprovalService, RuntimeQueueGateway, RuntimeState
@@ -251,6 +253,8 @@ def main() -> None:
 
 
 def _default_bambuddy_client() -> Any:
+    if os.environ.get("PRINT_CONCIERGE_BAMBUDDY_BACKEND", "").lower() == "sandbox":
+        return SandboxBambuddyClient()
     try:
         return BambuddyClient()
     except BambuddyError:
@@ -294,11 +298,18 @@ def _search_provider(provider: Any, query: str, *, limit: int | None) -> list[An
 
 
 def _default_approval_service() -> Any:
-    return RuntimeApprovalService(_default_runtime_state())
+    return RuntimeApprovalService(
+        _default_runtime_state(),
+        audit_logger=AuditLogger.from_env(),
+    )
 
 
 def _default_queue_gateway() -> Any:
-    return RuntimeQueueGateway(_default_runtime_state(), _default_bambuddy_client())
+    return RuntimeQueueGateway(
+        _default_runtime_state(),
+        _default_bambuddy_client(),
+        audit_logger=AuditLogger.from_env(),
+    )
 
 
 def _default_runtime_state() -> RuntimeState:

@@ -8,6 +8,7 @@ Configuration:
 2. Provide `BAMBUDDY_BASE_URL` and `BAMBUDDY_API_KEY` through the runtime environment.
 3. Keep the token least-privilege and rotate it like any other printer-control secret.
 4. Do not load broad Bambuddy MCP execution tools in the same Hermes agent profile that exposes Print Concierge.
+5. Mark `queue_print_request(request_id)` as a sensitive tool and require per-call confirmation.
 
 Expected flow:
 
@@ -18,4 +19,4 @@ Expected flow:
 5. Create a pending print request through `create_print_request`.
 6. After explicit user confirmation, queue that exact request through `queue_print_request(request_id)`.
 
-V0/V1 excludes direct starts, raw queue/start tools, and unrestricted Bambuddy control.
+V1.3 hardening incorporated skeptic feedback: Hermes should expose one sensitive scoped tool, `queue_print_request(request_id)`, and no raw Bambuddy queue/start/pause/cancel tools. Queueing is policy-gated, audited, capability-mode controlled, and manual-start by default.

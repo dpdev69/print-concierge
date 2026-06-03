@@ -279,6 +279,51 @@ def test_default_search_uses_runtime_archive_and_external_providers(monkeypatch)
     assert [result["title"] for result in results] == ["Runtime cable clip", "External clip"]
 
 
+def test_mcp_default_bambuddy_client_can_use_sandbox_backend(monkeypatch):
+    monkeypatch.setenv("PRINT_CONCIERGE_BAMBUDDY_BACKEND", "sandbox")
+
+    client = mcp_server._default_bambuddy_client()
+
+    assert client.list_printers()[0]["sandbox"] is True
+
+
+def test_mcp_queue_print_request_respects_prepare_only_capability_mode(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("PRINT_CONCIERGE_STATE_DB", str(tmp_path / "state.sqlite3"))
+    monkeypatch.setenv("PRINT_CONCIERGE_BAMBUDDY_BACKEND", "sandbox")
+    monkeypatch.setenv("PRINT_CONCIERGE_CAPABILITY_MODE", "prepare_only")
+    plan = mcp_server.prepare_print_plan(
+        selected={
+            "provider": "local_archive",
+            "result_id": "101:demo-headphone-cable-holder",
+            "title": "Headphone and Cable Holder",
+            "license": "CC0-1.0",
+            "profile": "0.20mm Standard",
+            "source": "bambuddy://sandbox/archives/101",
+            "archive_id": "101",
+            "model_id": "demo-headphone-cable-holder",
+            "file_name": "headphone-cable-holder-demo.3mf",
+            "file_hash": "sha256:sandbox-headphone-cable-holder",
+        },
+        printer={
+            "id": "1",
+            "name": "Sandbox A1 Mini",
+            "model": "Bambu Lab A1 mini",
+            "fresh": True,
+            "provenance": "sandbox",
+        },
+        material={"type": "PLA", "fresh": True, "provenance": "sandbox"},
+        profile={"name": "0.20mm Standard", "fresh": True, "provenance": "sandbox"},
+        user_id="user-1",
+        session_id="chat-1",
+    )
+    request = mcp_server.create_print_request(plan)
+
+    with pytest.raises(ValueError, match="policy denied"):
+        mcp_server.queue_print_request(request["request_id"])
+
+
 def test_mcp_search_accepts_limit_for_public_tool_shape():
     provider = FakeLimitedProvider()
 

@@ -15,7 +15,10 @@ def test_setup_docs_cover_runtime_configuration_and_safe_workflow():
         "BAMBUDDY_BASE_URL",
         "BAMBUDDY_API_KEY",
         "PRINT_CONCIERGE_STATE_DB",
+        "PRINT_CONCIERGE_AUDIT_LOG",
+        "PRINT_CONCIERGE_BAMBUDDY_BACKEND",
         "PRINT_CONCIERGE_BAMBUDDY_MANUAL_START",
+        "PRINT_CONCIERGE_CAPABILITY_MODE",
         "PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED",
         "3DSEARCH",
         "archive/imported trusted",
@@ -31,6 +34,9 @@ def test_setup_docs_cover_runtime_configuration_and_safe_workflow():
         "queue_print_request",
         "approvals approve",
         "do not load broad Bambuddy MCP",
+        "sensitive scoped queue tool",
+        "per-call confirmation",
+        "sandbox/demo mode",
     ]
     for item in required:
         assert item in text
@@ -54,6 +60,36 @@ def test_security_review_doc_records_findings_and_verification_commands():
     ]
     for item in required:
         assert item in text
+
+
+def test_v13_hardening_docs_describe_sensitive_queue_boundary():
+    combined = "\n".join(
+        read(path)
+        for path in [
+            "README.md",
+            "SECURITY.md",
+            "ARCHITECTURE.md",
+            "docs/setup.md",
+            "docs/installable-skills.md",
+        ]
+    )
+
+    required = [
+        "V1.3 hardening",
+        "skeptic feedback",
+        "one sensitive scoped tool",
+        "queue_print_request(request_id)",
+        "no raw Bambuddy queue/start/pause/cancel tools",
+        "policy-gated",
+        "audited",
+        "capability-mode controlled",
+        "manual-start by default",
+        "MCP hosts should mark",
+        "per-call confirmation",
+        "```mermaid",
+    ]
+    for item in required:
+        assert item in combined
 
 
 def test_github_launch_doc_contains_promotional_language():

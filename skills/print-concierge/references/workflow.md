@@ -37,3 +37,5 @@ Example MCP client shape:
 8. Monitor: `get_job_status(job_id)` after the request reports a queued job.
 
 Public search results are candidates, not print authority. Queue only from a Bambuddy archive/imported trusted item through a scoped Print Concierge request id. Do not use broad Bambuddy MCP tools in the same production agent profile.
+
+V1.3 hardening incorporated skeptic feedback: expose one sensitive scoped tool, `queue_print_request(request_id)`, and no raw Bambuddy queue/start/pause/cancel tools. MCP hosts should mark that tool sensitive, require per-call confirmation, and keep queueing policy-gated, audited, capability-mode controlled, and manual-start by default.

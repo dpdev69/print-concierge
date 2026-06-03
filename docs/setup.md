@@ -24,7 +24,10 @@ Edit `.env`:
 BAMBUDDY_BASE_URL=http://YOUR-BAMBUDDY-HOST:8000
 BAMBUDDY_API_KEY=replace-with-a-least-privilege-token
 PRINT_CONCIERGE_STATE_DB=~/.print-concierge/state.sqlite3
+PRINT_CONCIERGE_AUDIT_LOG=~/.print-concierge/audit.jsonl
+PRINT_CONCIERGE_BAMBUDDY_BACKEND=real
 PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true
+PRINT_CONCIERGE_CAPABILITY_MODE=queue_enabled
 PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=true
 PRINT_CONCIERGE_PUBLIC_IMPORT_MAX_BYTES=157286400
 PRINT_CONCIERGE_PUBLIC_IMPORT_SLICE_WAIT_SECONDS=300
@@ -34,7 +37,13 @@ PRINT_CONCIERGE_PUBLIC_IMPORT_SLICE_WAIT_SECONDS=300
 
 The runtime creates the state directory with `0700` permissions and the SQLite database with `0600` permissions.
 
+Audit logging is on by default. If `PRINT_CONCIERGE_AUDIT_LOG` is unset, Print Concierge writes append-only JSONL receipts to `~/.print-concierge/audit.jsonl` or next to `PRINT_CONCIERGE_STATE_DB`. Set `PRINT_CONCIERGE_AUDIT_LOG=off` to disable file logging.
+
+`PRINT_CONCIERGE_BAMBUDDY_BACKEND=sandbox` uses an in-memory demo client with fixture printers and model archives. It never calls the network or touches hardware. Use `real` or leave it unset for Bambuddy.
+
 `PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true` keeps queued prints in a manual-start posture. This preserves the product boundary: the agent can discover public models and queue a specific prepared request, but physical start remains separate from chat.
+
+`PRINT_CONCIERGE_CAPABILITY_MODE` controls queue authority through policy. Use `search_only` for discovery host profiles, `prepare_only` for search/import/plan demos that should never queue, `queue_enabled` for supervised local use, and reserve `admin` for local operator workflows. Host tool allowlists should match the selected profile. Queueing remains policy-gated, audited, capability-mode controlled, and manual-start by default.
 
 Public web search is on by default, so the agent can discover candidates from indexed public model sites such as MakerWorld, Printables, and Thingiverse through 3DSEARCH. Queueing is intentionally narrower: a print must resolve to a Bambuddy archive/imported trusted item, become an immutable Print Concierge request, and be submitted through `queue_print_request(request_id)` before it can be sent to Bambuddy. `import_public_candidate` can import/verify supported MakerWorld candidates through Bambuddy, and Printables/Thingiverse candidates when the selected result includes a trusted direct file URL. Source files such as STL require explicit `slice_options` chosen from Bambuddy slicer presets before they can become queueable. Set `PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=false` only when you intentionally want the agent to search Bambuddy/local archives and no public web sources.
 
@@ -74,7 +83,7 @@ set +a
 uv run print-concierge-mcp
 ```
 
-Available V1.2 tools:
+Available V1.3 tools:
 
 - `search_archive_or_models`
 - `get_public_import_status`
@@ -103,6 +112,14 @@ Safe tool order:
 10. Poll `get_print_request_status(request_id)`, then `get_job_status(job_id)` after the request reports a queued job
 
 Security rule: do not load broad Bambuddy MCP tools in the same production agent profile. The point of Print Concierge is that all clients go through the curated planning workflow and only receive scoped request queueing, not raw printer controls.
+
+Host rule: `queue_print_request(request_id)` is the sensitive scoped queue tool. MCP hosts should mark it sensitive and require per-call confirmation. Print Concierge exposes one sensitive scoped tool and no raw Bambuddy queue/start/pause/cancel tools, but a host that auto-approves that tool can still submit queued work.
+
+## Sandbox/Demo Mode
+
+For sandbox/demo mode, keep `PRINT_CONCIERGE_CAPABILITY_MODE=search_only` or `prepare_only`, use a non-production Bambuddy instance when possible, keep `PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true`, and do not load broad Bambuddy MCP tools in the same profile. This mode is useful for public demos, screenshots, and docs walkthroughs because the agent can search, import, prepare, and show requests without gaining queue authority.
+
+For a fully local no-hardware demo, set `PRINT_CONCIERGE_BAMBUDDY_BACKEND=sandbox`. The sandbox backend ships with a sample A1 Mini printer and a headphone/cable holder archive item.
 
 ## Claude Desktop Example
 

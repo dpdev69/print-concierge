@@ -2,6 +2,8 @@
 
 Print Concierge publishes a canonical skill plus host-specific shims. The skill teaches agents to use the curated MCP/CLI workflow and never raw Bambuddy control.
 
+V1.3 hardening incorporated skeptic feedback into the package contract: every host package exposes one sensitive scoped tool, `queue_print_request(request_id)`, and no raw Bambuddy queue/start/pause/cancel tools. Queueing is policy-gated, audited, capability-mode controlled, and manual-start by default.
+
 ## Canonical Package
 
 - Skill root: `skills/print-concierge/`
@@ -43,6 +45,8 @@ Example client configuration:
 
 Keep Bambuddy credentials in the runtime environment, with least privilege. Do not put secret values in skill files, agent memory, logs, or chat.
 
+MCP hosts should mark `queue_print_request(request_id)` as sensitive printer-control authority and require per-call confirmation. If the host cannot enforce that, run a search-only or prepare-only sandbox/demo mode profile instead of a production queue-enabled profile.
+
 Public model-site search is enabled by default through 3DSEARCH, which indexes MakerWorld, Printables, Thingiverse, and other model platforms. Those public hits are discovery candidates until imported/verified. Use `get_public_import_status` before MakerWorld imports, then `import_public_candidate` for supported MakerWorld candidates. `import_public_candidate` also supports Printables/Thingiverse candidates that include a trusted direct file URL; source files must use explicit preset refs from `list_slicer_presets` through `slice_options` before they can become queueable. The queueing path still requires a Bambuddy archive/imported trusted item plus a scoped `queue_print_request(request_id)` call for an existing request. For archive-only/local-only mode:
 
 ```sh
@@ -61,4 +65,4 @@ To use a private search gateway instead, configure `PRINT_CONCIERGE_MAKERWORLD_S
 
 ## Safety Contract
 
-Every host package must preserve these rules: explicit user confirmation before queueing, scoped `queue_print_request(request_id)` only, no raw queue/start tools, exact print job binding, untrusted model metadata, no secret exposure, least privilege Bambuddy credentials, and no direct start.
+Every host package must preserve these rules: explicit user confirmation before queueing, one sensitive scoped tool via `queue_print_request(request_id)` only, no raw Bambuddy queue/start/pause/cancel tools, exact print job binding, untrusted model metadata, no secret exposure, least privilege Bambuddy credentials, policy-gated and audited queueing, capability-mode controlled runtime authority, manual-start by default, and no direct start.

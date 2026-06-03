@@ -6,44 +6,28 @@ Build a modular, secure print concierge that can be used from Hermes/Telegram fi
 
 ## High-level system
 
-```text
-Client surfaces
-  - Hermes Telegram
-  - Hermes CLI
-  - Discord/Slack/etc.
-  - Claude Desktop / Claude Code via MCP
-  - CLI
-  - optional Web UI
-        |
-        v
-Print Concierge Core
-  - intent handling
-  - model search
-  - ranking
-  - print-plan creation
-  - confirmation workflow
-        |
-        v
-Safety Gateway / Policy Engine
-  - authz
-  - confirmation tokens
-  - risk checks
-  - audit log
-  - redaction
-  - rate limits
-        |
-        v
-Bambuddy Adapter
-  - direct REST API and/or bambuddy-mcp bridge
-  - printer status
-  - archive/import/queue/status
-  - camera/snapshot
-        |
-        v
-Bambuddy
-        |
-        v
-Bambu Lab printer
+```mermaid
+flowchart TD
+    subgraph Hosts["Client surfaces"]
+        Hermes["Hermes / Telegram"]
+        Claude["Claude Desktop / Claude Code"]
+        Codex["Codex / OpenClaw"]
+        LocalCLI["CLI / local admin"]
+    end
+
+    Hermes --> MCP["Print Concierge MCP server"]
+    Claude --> MCP
+    Codex --> MCP
+    LocalCLI --> Runtime["Print Concierge runtime"]
+    MCP --> Runtime
+
+    Runtime --> Core["Core workflow<br/>search, import, prepare, request"]
+    Core --> Gateway["Safety gateway / policy engine<br/>authz, capability mode, risk checks, audit, redaction"]
+    Gateway --> Adapter["Bambuddy adapter<br/>safe archive/import/status plus scoped queue"]
+    Adapter --> Bambuddy["Bambuddy"]
+    Bambuddy --> Printer["Bambu Lab printer"]
+
+    MCP -. "one sensitive scoped tool:<br/>queue_print_request(request_id)" .-> Gateway
 ```
 
 ## Key architecture principle
@@ -51,6 +35,8 @@ Bambu Lab printer
 The agent client never gets direct unconstrained printer control.
 
 All clients must go through the same safety gateway. This prevents a safer Hermes flow from being bypassed by Claude/Codex/CLI using a lower-level endpoint.
+
+V1.3 hardening incorporated skeptic feedback by making the boundary explicit: agent hosts get one sensitive scoped tool, `queue_print_request(request_id)`, and no raw Bambuddy queue/start/pause/cancel tools. Queueing must stay policy-gated, audited, capability-mode controlled, and manual-start by default.
 
 ## Components
 
@@ -134,7 +120,8 @@ Early scoring signals:
 Responsibilities:
 
 - validate user permissions;
-- generate and verify confirmation tokens;
+- enforce request-bound confirmation;
+- enforce capability mode;
 - enforce risk policies;
 - redact secrets;
 - write audit logs;
@@ -189,6 +176,7 @@ Recommended approach:
 - For v1, build a restricted Bambuddy adapter with explicit safe methods.
 - Optionally call `bambuddy-mcp` under the hood for implementation convenience.
 - Never expose broad direct-mode API to the user-facing agent by default.
+- MCP hosts should mark `queue_print_request(request_id)` as sensitive and require per-call confirmation.
 
 ## Proposed package layout
 

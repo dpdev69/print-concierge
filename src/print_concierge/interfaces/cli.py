@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import is_dataclass
 from typing import Any, Sequence
 
-from print_concierge.bambuddy import BambuddyClient, BambuddyError
+from print_concierge.audit import AuditLogger
+from print_concierge.bambuddy import BambuddyClient, BambuddyError, SandboxBambuddyClient
 from print_concierge.planner import PrintPlan, prepare_print_plan
 from print_concierge.public_imports import import_public_candidate
 from print_concierge.runtime import RuntimeApprovalService, RuntimeQueueGateway, RuntimeState
@@ -34,7 +36,9 @@ def main(
     client = client if client is not None else _default_client()
     archive_provider = archive_provider or _default_archive_provider(client)
     search_provider = search_provider or _default_search_provider(archive_provider)
-    approval_service = approval_service or RuntimeApprovalService(RuntimeState())
+    approval_service = approval_service or RuntimeApprovalService(
+        RuntimeState(), audit_logger=AuditLogger.from_env()
+    )
 
     if args.command == "search":
         _emit(out, search_provider.search(args.query, limit=args.limit))
@@ -231,7 +235,11 @@ def _handle_queue_request(
     if client is None:
         raise SystemExit("queue-request requires a Bambuddy client")
     state = getattr(approval_service, "state", RuntimeState())
-    queued = RuntimeQueueGateway(state, client).queue_print_request(request_id)
+    queued = RuntimeQueueGateway(
+        state,
+        client,
+        audit_logger=AuditLogger.from_env(),
+    ).queue_print_request(request_id)
     _emit(
         output,
         approval_service.get_print_request_status(request_id) | {"queue_result": queued},
@@ -239,6 +247,8 @@ def _handle_queue_request(
 
 
 def _default_client() -> Any:
+    if os.environ.get("PRINT_CONCIERGE_BAMBUDDY_BACKEND", "").lower() == "sandbox":
+        return SandboxBambuddyClient()
     try:
         return BambuddyClient()
     except BambuddyError:

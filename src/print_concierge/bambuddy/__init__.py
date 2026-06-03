@@ -5,6 +5,7 @@ from print_concierge.bambuddy.client import (
     BambuddyError,
     BambuddyNotFoundError,
 )
+from print_concierge.bambuddy.sandbox import SandboxBambuddyClient
 
 __all__ = [
     "BambuddyAmbiguousActionError",
@@ -12,4 +13,5 @@ __all__ = [
     "BambuddyConnectionError",
     "BambuddyError",
     "BambuddyNotFoundError",
+    "SandboxBambuddyClient",
 ]

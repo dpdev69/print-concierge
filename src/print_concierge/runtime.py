@@ -9,12 +9,15 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
+from print_concierge.audit import AuditLogger
 from print_concierge.models import (
+    AuditEvent,
     ModelSearchResult as PlanModelSearchResult,
     PrintPlan,
     PrinterInfo,
     RiskFlag,
 )
+from print_concierge.policy import PolicyConfig, PolicyEngine
 
 
 def _utc_now() -> datetime:
@@ -241,12 +244,15 @@ class RuntimeState:
         self._validate_request_binding(request, plan)
         return request, plan
 
-    def claim_request_for_queue(self, request_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def load_queueable_request_plan(self, request_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
         request = self.get_print_request(request_id)
         self._raise_if_not_queueable(request["status"])
         plan = self.get_plan(str(request["plan_hash"]))
         self._validate_request_binding(request, plan)
+        return request, plan
 
+    def claim_request_for_queue(self, request_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        request, plan = self.load_queueable_request_plan(request_id)
         now = _iso(_utc_now())
         updated = {
             **request,
@@ -551,13 +557,17 @@ class RuntimeApprovalService:
         state: RuntimeState | None = None,
         *,
         ttl: timedelta = timedelta(minutes=30),
+        audit_logger: AuditLogger | None = None,
     ) -> None:
         self.state = state or RuntimeState()
         self.ttl = ttl
+        self.audit_logger = audit_logger
 
     def create_print_request(self, plan: Mapping[str, Any]) -> dict[str, Any]:
         payload = _jsonable(plan)
-        return self.state.create_print_request(payload, ttl=self.ttl)
+        request = self.state.create_print_request(payload, ttl=self.ttl)
+        self._record("print_request.created", request)
+        return request
 
     def get_print_request_status(self, request_id: str) -> dict[str, Any]:
         return self.state.get_print_request(request_id)
@@ -568,16 +578,47 @@ class RuntimeApprovalService:
         return self.state.list_print_requests(status=status, limit=limit)
 
     def approve_print_request(self, request_id: str) -> dict[str, Any]:
-        return self.state.approve_print_request(request_id)
+        request = self.state.approve_print_request(request_id)
+        self._record("print_request.approved", request)
+        return request
 
     def reject_print_request(self, request_id: str) -> dict[str, Any]:
-        return self.state.reject_print_request(request_id)
+        request = self.state.reject_print_request(request_id)
+        self._record("print_request.rejected", request)
+        return request
+
+    def _record(self, event_type: str, request: Mapping[str, Any]) -> None:
+        if self.audit_logger is None:
+            return
+        self.audit_logger.record(
+            AuditEvent(
+                event_type=event_type,
+                actor_id=str(request.get("user_id") or ""),
+                job_id=str(request.get("job_id") or ""),
+                details={
+                    "request_id": request.get("request_id"),
+                    "plan_hash": request.get("plan_hash"),
+                    "status": request.get("status"),
+                    "printer_id": request.get("printer_id"),
+                    "file_hash": request.get("file_hash"),
+                },
+            )
+        )
 
 
 class RuntimeQueueGateway:
-    def __init__(self, state: RuntimeState | None = None, client: Any = None) -> None:
+    def __init__(
+        self,
+        state: RuntimeState | None = None,
+        client: Any = None,
+        *,
+        policy_engine: PolicyEngine | None = None,
+        audit_logger: AuditLogger | None = None,
+    ) -> None:
         self.state = state or RuntimeState()
         self.client = client
+        self.policy_engine = policy_engine or PolicyEngine(PolicyConfig.from_env())
+        self.audit_logger = audit_logger
 
     def queue_approved_print(self, request_id: str) -> dict[str, Any]:
         return self.queue_print_request(request_id)
@@ -585,7 +626,39 @@ class RuntimeQueueGateway:
     def queue_print_request(self, request_id: str) -> dict[str, Any]:
         if self.client is None or not hasattr(self.client, "queue_print"):
             raise TypeError("Bambuddy queue client is not configured")
+        request, plan = self.state.load_queueable_request_plan(request_id)
+        decision = self.policy_engine.evaluate(
+            action="queue_print",
+            plan=plan,
+            user_id=str(request["user_id"]),
+            chat_id=str(request["chat_id"]),
+            printer_id=str(request["printer_id"]),
+            confirmation_id=str(request["request_id"]),
+            remote=_env_bool("PRINT_CONCIERGE_REMOTE_QUEUE", default=False),
+            snapshot_id=str(plan.get("snapshot_id") or request.get("snapshot_id") or "")
+            or None,
+        )
+        if not decision.allowed:
+            self._record(
+                "print_request.queue.denied",
+                request=request,
+                plan=plan,
+                details={
+                    "reasons": decision.reasons,
+                    "risk_flags": decision.risk_flags,
+                },
+            )
+            raise ValueError(
+                "queue policy denied: " + "; ".join(decision.reasons or decision.risk_flags)
+            )
+        self._record(
+            "print_request.queue.policy_allowed",
+            request=request,
+            plan=plan,
+            details={"risk_flags": decision.risk_flags},
+        )
         request, plan = self.state.claim_request_for_queue(request_id)
+        self._record("print_request.queue.claimed", request=request, plan=plan)
         queue_payload = {
             **plan,
             "_print_concierge_confirmed": True,
@@ -604,6 +677,12 @@ class RuntimeQueueGateway:
                 request_id=str(request["request_id"]),
                 error=str(exc),
             )
+            self._record(
+                "print_request.queue.failed",
+                request=request,
+                plan=plan,
+                details={"error": str(exc)},
+            )
             raise
         job_id = str(result["job_id"])
         self.state.mark_request_queued(
@@ -613,4 +692,45 @@ class RuntimeQueueGateway:
             queue_payload=queue_payload,
             queue_result=result,
         )
+        self._record(
+            "print_request.queue.queued",
+            request=request,
+            plan=plan,
+            job_id=job_id,
+            details={"queue_result": result},
+        )
         return result
+
+    def _record(
+        self,
+        event_type: str,
+        *,
+        request: Mapping[str, Any],
+        plan: Mapping[str, Any],
+        job_id: str | None = None,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
+        if self.audit_logger is None:
+            return
+        payload = {
+            "request_id": request.get("request_id"),
+            "plan_hash": plan.get("plan_hash"),
+            "printer_id": request.get("printer_id"),
+            "file_hash": request.get("file_hash"),
+            **dict(details or {}),
+        }
+        self.audit_logger.record(
+            AuditEvent(
+                event_type=event_type,
+                actor_id=str(request.get("user_id") or ""),
+                job_id=job_id or str(request.get("job_id") or ""),
+                details=payload,
+            )
+        )
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}

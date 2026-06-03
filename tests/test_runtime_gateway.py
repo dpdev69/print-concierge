@@ -3,7 +3,9 @@ import stat
 
 import pytest
 
+from print_concierge.audit import AuditLogger
 from print_concierge.interfaces import mcp_server
+from print_concierge.policy import PolicyConfig, PolicyEngine
 from print_concierge.runtime import RuntimeApprovalService, RuntimeQueueGateway, RuntimeState
 from print_concierge.search.base import ModelSearchResult
 
@@ -65,6 +67,21 @@ def test_runtime_print_request_persists_plan_and_never_returns_authorizing_token
     assert state.get_plan(request["plan_hash"])["job_id"] == request["job_id"]
 
 
+def test_runtime_approval_service_records_request_lifecycle_audit_events(tmp_path):
+    state = RuntimeState(tmp_path / "state.sqlite3")
+    audit = AuditLogger.memory()
+    service = RuntimeApprovalService(state, audit_logger=audit)
+
+    request = service.create_print_request(_plan())
+    service.approve_print_request(request["request_id"])
+
+    assert [event["event_type"] for event in audit.events] == [
+        "print_request.created",
+        "print_request.approved",
+    ]
+    assert audit.events[0]["details"]["request_id"] == request["request_id"]
+
+
 def test_runtime_print_request_rejects_forged_plan_hash(tmp_path):
     state = RuntimeState(tmp_path / "state.sqlite3")
     service = RuntimeApprovalService(state)
@@ -121,6 +138,68 @@ def test_runtime_queue_gateway_marks_failed_request_without_retrying(tmp_path):
     assert "network down" in status["queue_error"]
     with pytest.raises(ValueError, match="failed"):
         gateway.queue_print_request(request["request_id"])
+
+
+def test_runtime_queue_gateway_denies_policy_before_claiming_request(tmp_path):
+    state = RuntimeState(tmp_path / "state.sqlite3")
+    service = RuntimeApprovalService(state)
+    queue_client = QueueClient()
+    audit = AuditLogger.memory()
+    gateway = RuntimeQueueGateway(
+        state,
+        queue_client,
+        policy_engine=PolicyEngine(PolicyConfig(allowed_printers={"2"})),
+        audit_logger=audit,
+    )
+    request = service.create_print_request(_plan())
+
+    with pytest.raises(ValueError, match="policy denied"):
+        gateway.queue_print_request(request["request_id"])
+
+    status = service.get_print_request_status(request["request_id"])
+    assert status["status"] == "pending_user_approval"
+    assert queue_client.payloads == []
+    assert [event["event_type"] for event in audit.events] == [
+        "print_request.queue.denied"
+    ]
+    assert audit.events[0]["details"]["risk_flags"] == ["printer_not_allowed"]
+
+
+def test_runtime_queue_gateway_records_audit_events_for_success_and_failure(tmp_path):
+    state = RuntimeState(tmp_path / "state.sqlite3")
+    service = RuntimeApprovalService(state)
+    success_audit = AuditLogger.memory()
+    request = service.create_print_request(_plan())
+
+    RuntimeQueueGateway(
+        state,
+        QueueClient(),
+        policy_engine=PolicyEngine(PolicyConfig()),
+        audit_logger=success_audit,
+    ).queue_print_request(request["request_id"])
+
+    assert [event["event_type"] for event in success_audit.events] == [
+        "print_request.queue.policy_allowed",
+        "print_request.queue.claimed",
+        "print_request.queue.queued",
+    ]
+    assert success_audit.events[-1]["job_id"] == "42"
+    assert success_audit.events[-1]["details"]["request_id"] == request["request_id"]
+
+    failure_audit = AuditLogger.memory()
+    failing_request = service.create_print_request(_plan())
+    with pytest.raises(RuntimeError, match="network down"):
+        RuntimeQueueGateway(
+            state,
+            FailingQueueClient(),
+            policy_engine=PolicyEngine(PolicyConfig()),
+            audit_logger=failure_audit,
+        ).queue_print_request(failing_request["request_id"])
+
+    assert [event["event_type"] for event in failure_audit.events][-1] == (
+        "print_request.queue.failed"
+    )
+    assert "network down" in failure_audit.events[-1]["details"]["error"]
 
 
 def test_mcp_default_print_request_uses_runtime_state(monkeypatch, tmp_path):

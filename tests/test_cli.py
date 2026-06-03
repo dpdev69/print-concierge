@@ -1,6 +1,8 @@
 import io
 import json
 
+import pytest
+
 from print_concierge.interfaces.cli import main
 
 
@@ -109,6 +111,17 @@ def test_cli_uses_env_configured_bambuddy_client_by_default(monkeypatch, capsys)
     assert parse(capsys.readouterr().out) == [
         {"archive_id": "a1", "title": "Cable clip"}
     ]
+
+
+def test_cli_can_use_sandbox_bambuddy_backend_from_env(monkeypatch, capsys):
+    monkeypatch.setenv("PRINT_CONCIERGE_BAMBUDDY_BACKEND", "sandbox")
+
+    exit_code = main(["printers"])
+
+    assert exit_code == 0
+    output = parse(capsys.readouterr().out)
+    assert output[0]["sandbox"] is True
+    assert output[0]["name"] == "Sandbox A1 Mini"
 
 
 def test_cli_search_returns_normalized_options(capsys):
@@ -376,6 +389,7 @@ def test_cli_local_approval_flow_queues_only_after_approval(monkeypatch, tmp_pat
 
 def test_cli_queue_request_queues_pending_request(monkeypatch, tmp_path):
     monkeypatch.setenv("PRINT_CONCIERGE_STATE_DB", str(tmp_path / "state.sqlite3"))
+    monkeypatch.setenv("PRINT_CONCIERGE_AUDIT_LOG", str(tmp_path / "audit.jsonl"))
     client = FakeClient()
     archive = FakeArchive()
     prepared_out = io.StringIO()
@@ -417,6 +431,50 @@ def test_cli_queue_request_queues_pending_request(monkeypatch, tmp_path):
     assert queued["status"] == "queued"
     assert queued["queue_result"]["job_id"] == "42"
     assert client.payloads[0]["approval"]["request_id"] == request_id
+    assert "print_request.queue.queued" in (tmp_path / "audit.jsonl").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_cli_queue_request_respects_prepare_only_capability_mode(monkeypatch, tmp_path):
+    monkeypatch.setenv("PRINT_CONCIERGE_STATE_DB", str(tmp_path / "state.sqlite3"))
+    monkeypatch.setenv("PRINT_CONCIERGE_CAPABILITY_MODE", "prepare_only")
+    client = FakeClient()
+    archive = FakeArchive()
+    prepared_out = io.StringIO()
+    main(
+        [
+            "prepare",
+            "--archive-id",
+            "a1",
+            "--printer-id",
+            "1",
+            "--material",
+            "PLA",
+            "--profile",
+            "0.20mm",
+        ],
+        client=client,
+        archive_provider=archive,
+        output=prepared_out,
+    )
+    request_out = io.StringIO()
+    main(
+        ["request-print", "--plan-json", prepared_out.getvalue()],
+        client=client,
+        archive_provider=archive,
+        output=request_out,
+    )
+
+    with pytest.raises(ValueError, match="policy denied"):
+        main(
+            ["queue-request", json.loads(request_out.getvalue())["request_id"]],
+            client=client,
+            archive_provider=archive,
+            output=io.StringIO(),
+        )
+
+    assert client.payloads == []
 
 
 def test_cli_can_queue_previously_approved_request(monkeypatch, tmp_path):

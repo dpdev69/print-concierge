@@ -1,4 +1,5 @@
 import json
+import stat
 
 from print_concierge.audit import AuditLogger, redact_secrets
 from print_concierge.models import AuditEvent
@@ -71,3 +72,32 @@ def test_memory_logger_keeps_redacted_events_for_tests():
 
     assert len(logger.events) == 1
     assert "pc_plaintext" not in json.dumps(logger.events[0])
+
+
+def test_audit_logger_from_env_uses_configured_jsonl_path(monkeypatch, tmp_path):
+    path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("PRINT_CONCIERGE_AUDIT_LOG", str(path))
+
+    logger = AuditLogger.from_env()
+
+    assert logger is not None
+    logger.record(AuditEvent(event_type="print_request.queue.queued"))
+    assert json.loads(path.read_text(encoding="utf-8"))["event_type"] == (
+        "print_request.queue.queued"
+    )
+    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_audit_logger_from_env_defaults_to_private_state_directory(monkeypatch, tmp_path):
+    state_path = tmp_path / "state" / "state.sqlite3"
+    monkeypatch.delenv("PRINT_CONCIERGE_AUDIT_LOG", raising=False)
+    monkeypatch.setenv("PRINT_CONCIERGE_STATE_DB", str(state_path))
+
+    logger = AuditLogger.from_env()
+
+    assert logger is not None
+    logger.record(AuditEvent(event_type="print_request.created"))
+    assert logger.path == state_path.parent / "audit.jsonl"
+    assert stat.S_IMODE(logger.path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(logger.path.stat().st_mode) == 0o600

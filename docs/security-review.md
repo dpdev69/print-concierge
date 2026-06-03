@@ -4,7 +4,9 @@ Review date: 2026-06-03
 
 ## Summary
 
-No high-severity findings remain open in the current V1.2 code. The project is intentionally conservative: public search and agent-facing tools can discover models, create pending print requests, and queue a specific request id, but the MCP server does not expose raw Bambuddy queue/start authority. Physical print start remains manual by default.
+No high-severity findings remain open in the current V1.3 hardening pass. The project is intentionally conservative: public search and agent-facing tools can discover models, create pending print requests, and queue a specific request id, but the MCP server does not expose raw Bambuddy queue/start/pause/cancel authority. Physical print start remains manual by default.
+
+This pass incorporated skeptic feedback into the docs and package contract: Print Concierge exposes one sensitive scoped tool, `queue_print_request(request_id)`, and MCP hosts should mark it sensitive with per-call confirmation. Queueing is policy-gated, audited, capability-mode controlled, and manual-start by default.
 
 ## Threat model
 
@@ -55,8 +57,9 @@ Status: mitigated for V1.
 
 - `prepare_print_plan` creates plans and does not emit authorization tokens.
 - `create_print_request` stores a pending request bound to job id, plan hash, user/session, file hash, printer, and material/profile.
-- The MCP tool list exposes scoped `queue_print_request(request_id)`, not raw queue/start tools.
+- The MCP tool list exposes scoped `queue_print_request(request_id)`, not raw queue/start/pause/cancel tools.
 - Queueing remains limited to archive/imported trusted items.
+- `queue_print_request(request_id)` should be marked sensitive by MCP hosts and confirmed per call.
 - `print-concierge queue-request <request_id>` and `print-concierge approvals approve <request_id> --queue` call the same scoped runtime gateway as MCP.
 - Queue claims atomically move requests to `queueing`, then `queued` or `failed`, preventing duplicate submissions.
 - Runtime state initializes its directory as `0700` and SQLite database as `0600`.
@@ -80,6 +83,7 @@ Status: mitigated by packaging guidance.
 
 - The MCP server exposes curated tools only.
 - Setup docs instruct users: do not load broad Bambuddy MCP tools in the same production agent profile.
+- The public contract says no raw Bambuddy queue/start/pause/cancel tools in the production agent profile.
 - Endpoint allowlisting blocks arbitrary Bambuddy paths in the client adapter.
 
 ### 5. Queue ambiguity

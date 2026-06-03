@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
@@ -71,6 +72,18 @@ class AuditLogger:
     def memory(cls) -> "AuditLogger":
         return cls()
 
+    @classmethod
+    def from_env(cls) -> "AuditLogger | None":
+        configured = os.environ.get("PRINT_CONCIERGE_AUDIT_LOG")
+        if configured and configured.strip().lower() in {"0", "false", "no", "off"}:
+            return None
+        if not configured:
+            state_db = Path(
+                os.environ.get("PRINT_CONCIERGE_STATE_DB", "~/.print-concierge/state.sqlite3")
+            ).expanduser()
+            return cls.jsonl(state_db.parent / "audit.jsonl")
+        return cls.jsonl(Path(configured).expanduser())
+
     def record(self, event: AuditEvent) -> Dict[str, Any]:
         payload = redact_secrets(event.to_dict())
         if self.path is None:
@@ -78,8 +91,10 @@ class AuditLogger:
             return payload
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.chmod(0o700)
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(encoded)
             handle.write("\n")
+        self.path.chmod(0o600)
         return payload

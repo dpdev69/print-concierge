@@ -4,12 +4,22 @@ Print Concierge is a safety-first workflow layer for agent-assisted 3D printing 
 
 It gives Claude, Codex, Hermes, OpenClaw, and other MCP-capable clients a narrow set of tools to search for models, import and verify printable files, prepare print plans, create request-bound queue actions, and report status. The MCP server does not expose raw Bambuddy queue or start-print authority to the agent.
 
+V1.3 hardening incorporated skeptic feedback into the public contract: Print Concierge exposes one sensitive scoped tool, `queue_print_request(request_id)`, and no raw Bambuddy queue/start/pause/cancel tools. Queueing is policy-gated, audited, capability-mode controlled, and manual-start by default.
+
 ## Overview
 
 Print Concierge sits between an agent client and Bambuddy:
 
-```text
-Agent client -> Print Concierge MCP/CLI -> Bambuddy -> Printer
+```mermaid
+flowchart TD
+    Host["MCP host<br/>Claude, Codex, Hermes, OpenClaw"] --> MCP["Print Concierge MCP server"]
+    CLI["CLI / local admin"] --> Runtime["Print Concierge runtime"]
+    MCP --> Runtime
+    Runtime --> Gateway["Policy gateway<br/>request binding, capability mode, audit"]
+    Gateway --> Adapter["Bambuddy adapter<br/>archive, import, scoped queue, status"]
+    Adapter --> Bambuddy["Bambuddy"]
+    Bambuddy --> Printer["Bambu Lab printer"]
+    MCP -. "one sensitive scoped tool:<br/>queue_print_request(request_id)" .-> Gateway
 ```
 
 The agent can help with discovery and planning, but Print Concierge enforces the production boundary:
@@ -66,7 +76,10 @@ Edit `.env`:
 BAMBUDDY_BASE_URL=http://YOUR-BAMBUDDY-HOST:8000
 BAMBUDDY_API_KEY=replace-with-a-least-privilege-token
 PRINT_CONCIERGE_STATE_DB=~/.print-concierge/state.sqlite3
+PRINT_CONCIERGE_AUDIT_LOG=~/.print-concierge/audit.jsonl
+PRINT_CONCIERGE_BAMBUDDY_BACKEND=real
 PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true
+PRINT_CONCIERGE_CAPABILITY_MODE=queue_enabled
 PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=true
 ```
 
@@ -163,6 +176,8 @@ Example MCP client configuration:
 
 For host-specific skill packages, see [`docs/installable-skills.md`](docs/installable-skills.md).
 
+MCP hosts should mark `queue_print_request(request_id)` as sensitive printer-control authority and require per-call confirmation. Auto-approval is appropriate only in isolated sandbox/demo mode or tightly controlled operator profiles.
+
 ## Agent Workflow
 
 A typical agent flow should use the tools in this order:
@@ -206,7 +221,7 @@ The queueing path requires:
 - a pending print request;
 - a scoped request queue action, `queue_print_request(request_id)`, after explicit user confirmation.
 
-The agent never receives raw Bambuddy queue, start, pause, cancel, or broad printer-control tools through Print Concierge. `queue_print_request` can only submit a stored request whose immutable plan still matches the queued payload. Bambuddy manual-start remains the default, so queueing and physical print start are separate steps. Emergency pause and cancel controls remain in Bambuddy for this version.
+The agent never receives raw Bambuddy queue, start, pause, cancel, or broad printer-control tools through Print Concierge. `queue_print_request` can only submit a stored request whose immutable plan still matches the queued payload. The queue path is policy-gated, audited, capability-mode controlled, and manual-start by default, so queueing and physical print start are separate steps. Emergency pause and cancel controls remain in Bambuddy for this version.
 
 ## Configuration Reference
 
@@ -216,11 +231,18 @@ Common environment variables:
 BAMBUDDY_BASE_URL=http://YOUR-BAMBUDDY-HOST:8000
 BAMBUDDY_API_KEY=replace-with-a-least-privilege-token
 PRINT_CONCIERGE_STATE_DB=~/.print-concierge/state.sqlite3
+PRINT_CONCIERGE_AUDIT_LOG=~/.print-concierge/audit.jsonl
+PRINT_CONCIERGE_BAMBUDDY_BACKEND=real
 PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true
+PRINT_CONCIERGE_CAPABILITY_MODE=queue_enabled
 PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=true
 PRINT_CONCIERGE_PUBLIC_IMPORT_MAX_BYTES=157286400
 PRINT_CONCIERGE_PUBLIC_IMPORT_SLICE_WAIT_SECONDS=300
 ```
+
+Set `PRINT_CONCIERGE_BAMBUDDY_BACKEND=sandbox` for a no-hardware demo client with fixture printer/archive data.
+
+Audit logging is on by default. If `PRINT_CONCIERGE_AUDIT_LOG` is unset, Print Concierge writes `audit.jsonl` beside the local state database. Set it to `off` only for throwaway local experiments.
 
 Optional external search configuration:
 
