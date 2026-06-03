@@ -44,7 +44,7 @@ The key design choice: the agent never gets a raw "start printer" tool. All clie
 
 This is built for the Bambuddy crowd, self-hosters, makerspaces, and anyone who wants the convenience of AI print help without handing a physical machine to a chatbot.
 
-Repo: <github-url>
+Repo: https://github.com/dpdev69/print-concierge
 
 ## Hacker News / Reddit variant
 

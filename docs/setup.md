@@ -12,7 +12,7 @@ This guide gets Print Concierge running as a local CLI and MCP server for Claude
 ## Install
 
 ```sh
-git clone https://github.com/your-org/print-concierge.git
+git clone https://github.com/dpdev69/print-concierge.git
 cd print-concierge
 uv sync --extra dev --extra mcp
 cp .env.example .env

@@ -8,6 +8,111 @@ A secure, open-source, human-in-the-loop 3D printing assistant for Bambu Lab pri
 
 ---
 
+## What You Get
+
+- Chat-friendly search across your Bambuddy archive plus public model indexes.
+- Public candidate import/verification for supported MakerWorld, Printables, and Thingiverse flows.
+- A curated MCP server for Claude, Codex, Hermes, OpenClaw, and other MCP clients.
+- Backend-enforced confirmation before anything reaches the print queue.
+- Manual-start Bambuddy queueing by default.
+- Local-first runtime state with no hosted service required.
+
+Print Concierge is designed to sit in front of Bambuddy. It is not a replacement for Bambuddy, Bambu Studio, or printer safety judgment.
+
+## Quick Start
+
+Requirements:
+
+- Python 3.11+
+- `uv`
+- A running Bambuddy server reachable from this machine
+- A Bambuddy API key with the least privileges needed for archive reads, library upload/slicing, printer status, and confirmed queueing
+
+Install:
+
+```sh
+git clone https://github.com/dpdev69/print-concierge.git
+cd print-concierge
+uv sync --extra dev --extra mcp
+cp .env.example .env
+```
+
+Edit `.env` with your Bambuddy endpoint and API key:
+
+```sh
+BAMBUDDY_BASE_URL=http://YOUR-BAMBUDDY-HOST:8000
+BAMBUDDY_API_KEY=replace-with-a-least-privilege-token
+PRINT_CONCIERGE_STATE_DB=~/.print-concierge/state.sqlite3
+PRINT_CONCIERGE_BAMBUDDY_MANUAL_START=true
+PRINT_CONCIERGE_PUBLIC_WEB_SEARCH_ENABLED=true
+```
+
+Keep `.env` local. It is ignored by git. Do not put Bambuddy credentials in skill files, agent memory, screenshots, logs, or chat history.
+
+Run a CLI smoke test:
+
+```sh
+set -a
+source .env
+set +a
+
+uv run print-concierge printers
+uv run print-concierge archives
+uv run print-concierge search "headphone holder" --limit 5
+uv run print-concierge import-status
+uv run print-concierge slicer-presets
+```
+
+Run the MCP server:
+
+```sh
+set -a
+source .env
+set +a
+
+uv run print-concierge-mcp
+```
+
+Configure your MCP client to launch that command from this repository. Example:
+
+```json
+{
+  "mcpServers": {
+    "print-concierge": {
+      "command": "uv",
+      "args": ["run", "print-concierge-mcp"],
+      "env": {
+        "BAMBUDDY_BASE_URL": "http://YOUR-BAMBUDDY-HOST:8000",
+        "BAMBUDDY_API_KEY": "${BAMBUDDY_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+Safe agent workflow:
+
+1. `search_archive_or_models(query, limit)`
+2. User chooses a candidate.
+3. For public candidates, `import_public_candidate(...)` verifies/imports the file into Bambuddy first.
+4. `list_printers()` and `get_printer_status(printer_id)`
+5. `prepare_print_plan(...)`
+6. `request_confirmation(plan)`
+7. User reviews the exact plan and token.
+8. `queue_confirmed_print(confirmation_token)`
+9. `get_job_status(job_id)`
+
+Public search notes:
+
+- MakerWorld import depends on Bambuddy's MakerWorld integration and cloud download readiness.
+- Printables/Thingiverse imports need a trusted direct file URL. Already-sliced files can be verified directly.
+- STL/source files require explicit Bambuddy slicer preset refs from `list_slicer_presets` via `slice_options`.
+- Page-only public search results remain discovery-only until a trusted file URL is available.
+
+More detailed setup docs live in [`docs/setup.md`](docs/setup.md), and installable agent skill packages are documented in [`docs/installable-skills.md`](docs/installable-skills.md).
+
+---
+
 ## Product positioning
 
 Print Concierge is not "AI controls your 3D printer." It is a safety-first print workflow:
@@ -89,7 +194,7 @@ The existing `bambuddy-mcp` server is a control/API layer. Print Concierge is th
 - `docs/security-review.md` — current security review and residual risks.
 - `docs/github-launch.md` — promotional copy for publishing the open-source project.
 
-## Local smoke test
+## Local Smoke Test
 
 Create a local `.env` from `.env.example`, then load it before running the CLI:
 
@@ -100,6 +205,8 @@ set +a
 uv run print-concierge printers
 uv run print-concierge archives
 uv run print-concierge search "cable holder"
+uv run print-concierge import-status
+uv run print-concierge slicer-presets
 uv run print-concierge status 1
 uv run print-concierge import-public --candidate-json '<selected supported public result JSON>'
 uv run print-concierge prepare --archive-id 8 --printer-id 1 --material PLA --profile 0.2mm
