@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/dpdev69-print-concierge-badge.png)](https://mseep.ai/app/dpdev69-print-concierge)
+
 # Print Concierge for Bambuddy
 
 Print Concierge is a safety-first workflow layer for agent-assisted 3D printing with Bambuddy and Bambu Lab printers.
